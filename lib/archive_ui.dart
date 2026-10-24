@@ -147,7 +147,7 @@ class DeepStatusPanel extends StatelessWidget {
             : all.isEmpty
                 ? (done ? 'No archived posts found for this user' : 'No archived posts loaded yet')
                 : media == 0
-                    ? 'Found ${all.length} post${all.length == 1 ? '' : 's'}, all text — no media$oldest'
+                    ? 'Found ${all.length} post${all.length == 1 ? '' : 's'}, all text, no media$oldest'
                     : '${all.length} archived posts · $media with media${text > 0 ? ' · $text text' : ''}$oldest';
         final errs = st.where((s) => !s.ok).toList();
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

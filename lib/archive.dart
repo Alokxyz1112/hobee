@@ -281,7 +281,7 @@ class Archive {
     final bad = statuses.where((s) => !s.ok).toList();
     archiveNote.value = bad.isEmpty ? null : bad.map((s) => '${s.label}: ${s.error}').join(' · ');
     if (providers.isNotEmpty && bad0 == providers.length && liveIds.isEmpty) {
-      throw ArchiveError('No archive reachable — ${archiveNote.value}');
+      throw ArchiveError('No archive reachable: ${archiveNote.value}');
     }
 
     final known = await Db.liveIds(source);

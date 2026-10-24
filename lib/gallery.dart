@@ -348,7 +348,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                           : done
                               ? (entries.isEmpty && mediaFilter.value == MediaFilter.text && _all.any((p) => p.media.isEmpty)
                                   ? TextButton.icon(onPressed: () => applyLayout(PostLayout.card), icon: const Icon(Icons.view_agenda_outlined), label: const Text('Text posts show in Card / Compact layout'))
-                                  : Text(entries.isEmpty ? (_all.isEmpty ? (deep ? 'No archived posts' : 'No media here') : (_all.every((p) => p.media.isEmpty) ? 'All posts are text — no media' : 'Nothing matches these filters')) : 'No more posts'))
+                                  : Text(entries.isEmpty ? (_all.isEmpty ? (deep ? 'No archived posts' : 'No media here') : (_all.every((p) => p.media.isEmpty) ? 'All posts are text, no media' : 'Nothing matches these filters')) : 'No more posts'))
                               : TextButton(onPressed: _more, child: const Text('Load more')),
                 ),
               ),

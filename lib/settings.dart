@@ -68,7 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ListTile(
           leading: const Icon(Icons.key),
           title: const Text('Reddit client ID'),
-          subtitle: Text(a.clientId ?? 'Not set — tap to paste'),
+          subtitle: Text(a.clientId ?? 'Not set. Tap to paste'),
           onTap: () async {
             final id = await askClientId(context);
             if (id != null) await a.setClientId(id);
@@ -191,7 +191,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           valueListenable: RedlibConfig.rssEnabled,
           builder: (_, on, _) => SwitchListTile(
             title: const Text('Reddit RSS feed'),
-            subtitle: const Text('reddit.com/user/NAME/submitted/.rss — latest posts with images'),
+            subtitle: const Text('reddit.com/user/NAME/submitted/.rss: latest posts with images'),
             value: on,
             onChanged: (v) { RedlibConfig.rssEnabled.value = v; RedlibConfig.save(); },
           ),

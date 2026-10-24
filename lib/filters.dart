@@ -207,7 +207,7 @@ class FilterBar extends StatelessWidget {
                 padding: const EdgeInsets.only(right: 6),
                 child: InputChip(
                   avatar: Icon(Icons.date_range, size: 16, color: cs.primary),
-                  label: Text('${_d(r.start)}–${_d(r.end)}'),
+                  label: Text('${_d(r.start)} to ${_d(r.end)}'),
                   onPressed: () => _pickDate(context),
                   onDeleted: () => dateRange.value = null,
                 ),
@@ -347,7 +347,7 @@ Future<void> showFilterSheet(BuildContext context) => _sheet(context, (ctx) => L
           const Divider(),
           _row(ctx, Icons.filter_none, 'Hide duplicates', () => dupesNotifier.value = !dupesNotifier.value,
               trailing: Switch(value: dupesOn, onChanged: (v) => dupesNotifier.value = v)),
-          _row(ctx, Icons.date_range, r == null ? 'Date range…' : '${_d(r.start)} – ${_d(r.end)}', () async {
+          _row(ctx, Icons.date_range, r == null ? 'Date range…' : '${_d(r.start)} to ${_d(r.end)}', () async {
             Navigator.pop(ctx);
             await const FilterBar()._pickDate(context);
           }, trailing: r == null ? null : IconButton(icon: const Icon(Icons.close), onPressed: () => dateRange.value = null)),

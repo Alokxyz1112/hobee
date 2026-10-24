@@ -275,7 +275,7 @@ Hobee checks the media URL:
 
 ### The viewer fallback chain
 
-The full-screen viewer tries, in order: original → full → url → preview → thumbnail. It moves to the next one only when the *current* URL fails. Images are decoded at screen size (capped at 1024–4096 px) so huge originals don't blow up memory. If everything fails, you get a retry button; retry clears the image cache and requests again. Long-press shows every URL it tried and its HTTP status.
+The full-screen viewer tries, in order: original, full, url, preview, then thumbnail. It moves to the next one only when the *current* URL fails. Images are decoded at screen size (capped between 1024 and 4096 px) so huge originals don't blow up memory. If everything fails, you get a retry button; retry clears the image cache and requests again. Long-press shows every URL it tried and its HTTP status.
 
 ### Pagination cursors
 

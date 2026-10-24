@@ -179,10 +179,10 @@ class _FeedScreenState extends State<FeedScreen> {
                   child: loading
                       ? const CircularProgressIndicator()
                       : error != null
-                          ? TextButton(onPressed: _more, child: Text('Error — retry\n$error', textAlign: TextAlign.center))
+                          ? TextButton(onPressed: _more, child: Text('Error. Tap to retry\n$error', textAlign: TextAlign.center))
                           : done
                               ? Text(posts.isEmpty
-                                  ? (_all.isEmpty ? 'Nothing here' : (_all.every((p) => p.media.isEmpty) && mediaFilter.value != MediaFilter.text ? 'All posts are text — pick the Text filter' : 'Nothing matches these filters'))
+                                  ? (_all.isEmpty ? 'Nothing here' : (_all.every((p) => p.media.isEmpty) && mediaFilter.value != MediaFilter.text ? 'All posts are text. Pick the Text filter' : 'Nothing matches these filters'))
                                   : 'No more posts')
                               : TextButton(onPressed: _more, child: const Text('Load more')),
                 ),
