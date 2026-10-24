@@ -246,7 +246,7 @@ flowchart LR
 
 ### Deep Search merge
 
-Every source returns posts, and they're merged by **Reddit post id**. RSS and Redlib give "thin" records (title, link, maybe one image), while the archives give the full JSON (gallery items, media metadata, timestamps). When the same id shows up in both, the thin row gets replaced by the full archive record, but the post keeps its "Live" status because a live source saw it.
+Every source returns posts, and they're merged by **Reddit post id**. RSS and Redlib give "thin" records (title, link, maybe one image), while the archives give the full JSON (gallery items, media metadata, timestamps). When the same id shows up in both, the thin row gets replaced by the full archive record.
 
 A profile query also searches the subreddit `u_NAME`. That's where profile posts live, and author search alone misses some of them.
 
@@ -283,7 +283,7 @@ Arctic Shift is asked for 100 posts at a time with a `before` cursor. With sever
 
 ### Rate limits
 
-Requests are paced at about **1 request per second per host**. On a 429, Hobee waits for Reddit's `x-ratelimit-reset` and retries once. A source that fails doesn't get switched off for the whole session anymore; it gets tried again on the next search.
+Requests are paced at about **1 request per second per host**. On a 429, Hobee waits for Reddit's `x-ratelimit-reset` and retries. A source that fails doesn't get switched off for the whole session anymore; it gets tried again on the next search.
 
 ### Login flow
 
@@ -324,7 +324,7 @@ No ads, no analytics, no tracking, no server of mine. Everything goes straight f
 
 ## The journey
 
-Some of what went wrong while building this. These are real, mostly from my own commit messages and notes.
+Some of what went wrong while building this. All of these actually happened.
 
 - **API access pending.** I requested Reddit Data API access and it's still pending, so I had to make the whole app work without logging in first.
 - **Reddit JSON started returning 403.** The old `.json` trick stopped working for me, so I moved to RSS, then Redlib, then Arctic Shift as a proper archive.
