@@ -10,6 +10,8 @@ import 'filters.dart';
 import 'models.dart';
 import 'source_bar.dart';
 
+const viewerUserAgent = 'android:com.alok.hobee:v$appVersion (personal gallery app)';
+
 class Entry {
   final Post post;
   final MediaItem item;
@@ -58,20 +60,8 @@ class _ViewerState extends State<Viewer> {
     m.showSnackBar(SnackBar(content: Text('Saved $ok/${items.length} to Hobee folder')));
   }
 
-  Widget _photo(String url, MediaItem it) => _PhotoFallback(urls: [url, it.full, it.url, ?it.preview, it.thumb]);
-
-  Widget _photoOne(String url, VoidCallback onError) => PhotoView(
-        key: ValueKey(url),
-        imageProvider: NetworkImage(url),
-        minScale: PhotoViewComputedScale.contained,
-        maxScale: PhotoViewComputedScale.covered * 4,
-        backgroundDecoration: const BoxDecoration(color: Colors.black),
-        loadingBuilder: (_, _) => const Center(child: CircularProgressIndicator()),
-        errorBuilder: (_, _, _) {
-          WidgetsBinding.instance.addPostFrameCallback((_) => onError());
-          return const Center(child: CircularProgressIndicator());
-        },
-      );
+  Widget _photo(String url, MediaItem it) =>
+      PhotoFallback(key: ValueKey('${it.url}|${it.thumb}'), urls: [url, it.full, it.url, ?it.preview, it.thumb]);
 
   @override
   Widget build(BuildContext context) {
@@ -224,23 +214,118 @@ class _VideoPageState extends State<VideoPage> {
   }
 }
 
-/// Viewer photo: original first, then preview/thumbnail on load error. Never shows "media gone" for a load error.
-class _PhotoFallback extends StatefulWidget {
+/// Viewer photo: tries each URL in order (original, preview, thumbnail) and shows the first that loads.
+///
+/// 1.3.5 bug: PhotoView's errorBuilder runs on every rebuild of a failed page, and each run scheduled
+/// another "next URL" step. One failure could skip several candidates (including the working preview),
+/// so the chain ran out and only the retry icon was left. Now a failure only advances when it belongs
+/// to the URL currently shown, decodes are capped to screen size, and retry evicts the image cache.
+class PhotoFallback extends StatefulWidget {
   final List<String> urls;
-  const _PhotoFallback({required this.urls});
+  /// Test seam: builds the provider for a URL.
+  final ImageProvider Function(String url, int maxPx)? providerFor;
+  const PhotoFallback({super.key, required this.urls, this.providerFor});
   @override
-  State<_PhotoFallback> createState() => _PhotoFallbackState();
+  State<PhotoFallback> createState() => PhotoFallbackState();
 }
 
-class _PhotoFallbackState extends State<_PhotoFallback> {
-  int _i = 0;
+class PhotoFallbackState extends State<PhotoFallback> {
+  int i = 0;
+  final failures = <String>[]; // "url → reason", newest last
+  int _gen = 0; // bumps on retry so a fresh provider/key is used
+
+  List<String> get urls => widget.urls.where((u) => u.startsWith('http')).toSet().toList();
+
+  @override
+  void didUpdateWidget(PhotoFallback oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The URL list changed (e.g. the media check resolved): start again from the best URL.
+    if (oldWidget.urls.join('|') != widget.urls.join('|')) i = 0;
+  }
+
+  ImageProvider _provider(String u, int maxPx) {
+    if (widget.providerFor != null) return widget.providerFor!(u, maxPx);
+    // Cap decode size: some originals are 4000-9000 px wide and fail to decode on phones.
+    return ResizeImage(NetworkImage(u, headers: const {'User-Agent': viewerUserAgent}), width: maxPx, policy: ResizeImagePolicy.fit, allowUpscaling: false);
+  }
+
+  void _failed(String u, Object err) {
+    final us = urls;
+    if (!mounted || i >= us.length || us[i] != u) return; // stale or repeated report for an older URL
+    setState(() {
+      failures.add('$u → ${_reason(err)}');
+      i++;
+    });
+  }
+
+  static String _reason(Object e) {
+    final s = '$e';
+    final m = RegExp(r'statusCode: (\d+)').firstMatch(s);
+    if (m != null) return 'HTTP ${m.group(1)}';
+    return s.length > 120 ? '${s.substring(0, 120)}…' : s;
+  }
+
+  void retry() {
+    for (final u in urls) {
+      PaintingBinding.instance.imageCache.evict(NetworkImage(u, headers: const {'User-Agent': viewerUserAgent}));
+    }
+    PaintingBinding.instance.imageCache.clearLiveImages();
+    setState(() {
+      i = 0;
+      failures.clear();
+      _gen++;
+    });
+  }
+
+  void _showDebug() {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: SelectableText(
+            failures.isEmpty ? 'No load errors. Showing:\n${i < urls.length ? urls[i] : '-'}' : 'Load errors:\n${failures.join('\n')}',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final us = widget.urls.where((u) => u.startsWith('http')).toSet().toList();
-    if (_i >= us.length) {
-      return Center(child: IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), onPressed: () => setState(() => _i = 0)));
+    final us = urls;
+    if (i >= us.length) {
+      return GestureDetector(
+        onLongPress: _showDebug,
+        child: Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), tooltip: 'Retry', onPressed: retry),
+            const SizedBox(height: 4),
+            Text(us.isEmpty ? 'No image URL for this post' : 'Couldn\'t load image (${failures.isNotEmpty ? failures.last.split(' → ').last : 'error'})',
+                style: const TextStyle(color: Colors.white54, fontSize: 12)),
+            const Text('Long-press for details', style: TextStyle(color: Colors.white30, fontSize: 11)),
+          ]),
+        ),
+      );
     }
-    final st = context.findAncestorStateOfType<_ViewerState>();
-    return st!._photoOne(us[_i], () { if (mounted) setState(() => _i++); });
+    final u = us[i];
+    final mq = MediaQuery.of(context);
+    final maxPx = ((mq.size.longestSide * mq.devicePixelRatio) * 1.5).clamp(1024, 4096).round();
+    return GestureDetector(
+      onLongPress: _showDebug,
+      child: PhotoView(
+        key: ValueKey('$u#$_gen'),
+        imageProvider: _provider(u, maxPx),
+        minScale: PhotoViewComputedScale.contained,
+        maxScale: PhotoViewComputedScale.covered * 4,
+        backgroundDecoration: const BoxDecoration(color: Colors.black),
+        loadingBuilder: (_, _) => const Center(child: CircularProgressIndicator()),
+        errorBuilder: (_, err, _) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _failed(u, err));
+          return const Center(child: CircularProgressIndicator());
+        },
+      ),
+    );
   }
 }

@@ -1,49 +1,363 @@
-<p align="center"><img src="assets/icon/logo.png" width="128" alt="Hobee logo"></p>
+<p align="center">
+  <img src="assets/icon/logo.png" width="96" alt="Hobee logo">
+</p>
 
-# Hobee
+<h1 align="center">Hobee</h1>
 
-An ad-free Reddit gallery app for Android, built with Flutter.
+<p align="center">
+  A Reddit media gallery for Android that I built for myself. No ads, no analytics, no tracking.
+</p>
+
+<p align="center">
+  <img alt="version" src="https://img.shields.io/badge/version-1.3.6-red">
+  <img alt="platform" src="https://img.shields.io/badge/platform-Android-3DDC84">
+  <img alt="flutter" src="https://img.shields.io/badge/Flutter-3.47.8-02569B">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-blue">
+</p>
+
+Hobee shows a Reddit user's or subreddit's posts as a clean photo/video grid. Its main trick is **Deep Search**: it pulls a profile's history from the live Reddit sources *and* public archives, merges everything by post id, removes duplicates and tells you which posts are still live and which ones are gone.
+
+I'm a student and this is a hobby project. It works well for me, but read [Known issues](#known-issues) before you expect too much.
+
+## Table of contents
+
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Install](#install)
+- [Build from source](#build-from-source)
+- [Get your own Reddit API key](#get-your-own-reddit-api-key)
+- [Usage](#usage)
+  - [Home](#home)
+  - [Deep Search](#deep-search)
+  - [Search](#search)
+  - [Settings](#settings)
+- [Supported sources](#supported-sources)
+- [How it works](#how-it-works)
+- [Known issues](#known-issues)
+- [FAQ](#faq)
+- [Roadmap](#roadmap)
+- [The journey](#the-journey)
+- [Contributing](#contributing)
+- [Credits](#credits)
+- [License](#license)
+- [Disclaimer](#disclaimer)
 
 ## Features
 
-- Year / month gallery view of any subreddit
-- Filters: images, videos, galleries, text posts
-- Sort by Best, Hot, New, Rising, Top, Controversial
-- Search posts by date
-- Layouts: Card, Slides, Compact, Gallery
-- Deep Search: merges live posts, Reddit RSS, Redlib and the Arctic Shift archive, with **Live / Removed / Archive** labels
-- Duplicate-photo filter (dHash)
-- Download original-quality images, and videos with sound
-- Frosted glass UI
+- **Deep Search** for a username: Reddit JSON, Reddit RSS, Redlib and public archives (Arctic Shift, optionally PullPush), merged by post id
+- Every tile is labelled **Live**, **Archive** or **Removed**, so you know what still exists on Reddit
+- **Hide duplicates**: exact URL matching plus perceptual hashing (dHash), so reposts of the same picture show up once
+- **Original quality** mode: the viewer and downloads use the original upload (i.redd.it / imgur original) instead of Reddit's resized preview
+- Filters for All / Images / Videos / Galleries / Text, plus a "show posts between" date filter
+- Month headers and a year/month **jump** sheet for long histories
+- Four layouts: Card, Slides, Compact, Gallery
+- Full-screen viewer with swipe, galleries, videos and downloads (to `Pictures/Hobee` and `Movies/Hobee`)
+- Local SQLite cache, so posts you've already loaded open instantly and you can search them offline
+- Light / Dark / Auto theme
+- Works without logging in. Logging in with Reddit (bring your own client ID) unlocks the Home feed and the Search tab
 
 ## Screenshots
 
-Coming soon.
+| Deep Search | Viewer | Layouts |
+|---|---|---|
+| <img src="docs/screenshots/03-deep.png" width="250"> | <img src="docs/screenshots/06-viewer.png" width="250"> | <img src="docs/screenshots/10-layout.png" width="250"> |
+
+| Menu | Jump to month | Search |
+|---|---|---|
+| <img src="docs/screenshots/04-menu.png" width="250"> | <img src="docs/screenshots/05-date.png" width="250"> | <img src="docs/screenshots/07-search.png" width="250"> |
+
+| Home (logged out) | Deep Search (start) | Settings |
+|---|---|---|
+| <img src="docs/screenshots/01-home.png" width="250"> | <img src="docs/screenshots/02-deep-empty.png" width="250"> | <img src="docs/screenshots/08-settings.png" width="250"> |
+
+The photos are SFW nature posts from a public profile. You can see real source errors in the status lines (Reddit JSON 403, RSS 429 and so on). That's normal, and it's why Hobee falls back across several sources.
 
 ## Install
 
-Download the latest APK from the [Releases](../../releases) page and open it on your Android phone.
+1. Download `Hobee-1.3.6-arm64.apk` from the [Releases](../../releases) page. It's the build for almost every phone from the last ~6 years (arm64-v8a).
+2. Open it on your phone and allow "install unknown apps" for your browser or file manager.
+3. That's it. Deep Search works straight away without logging in.
+
+The APK is split per ABI because the universal one was over 25 MB. If you have an old 32-bit phone, build it yourself (see below).
 
 ## Build from source
 
+You need:
+
+- Flutter **3.47.8**
+- JDK **17**
+- Android SDK (whatever Flutter's `flutter doctor` asks for)
+
 ```bash
+git clone https://github.com/Alokxyz1112/hobee.git
+cd hobee
 flutter pub get
-flutter build apk --split-per-abi
+flutter analyze
+flutter test
+flutter build apk --release --split-per-abi --target-platform android-arm64
 ```
 
-Release signing is optional: put a `keystore/key.properties` file (with `storeFile`, `storePassword`, `keyAlias`, `keyPassword`) in the project root. Without it, the build uses debug keys.
+The APK ends up in `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`.
+
+**Signing:** `android/app/build.gradle.kts` signs the release with `android/key.properties` if that file exists, and falls back to the debug key otherwise. So a plain clone builds fine. To sign with your own key, create `android/key.properties`:
+
+```properties
+storePassword=...
+keyPassword=...
+keyAlias=...
+storeFile=/absolute/path/to/your.jks
+```
+
+`key.properties`, `*.jks` and `local.properties` are git-ignored. Please don't commit them.
+
+## Get your own Reddit API key
+
+You only need this if you want to **log in** (for the Home feed and the Search tab). Deep Search works without it.
+
+Reddit doesn't let one app's key be shared by everyone, so each person makes their own. It's free:
+
+1. Read the [Data API Wiki](https://support.reddithelp.com/hc/en-us/articles/16160319875092-Reddit-Data-API-Wiki) and the [Data API Terms](https://redditinc.com/policies/data-api-terms).
+2. Go to [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) (you have to be logged in) and click **create another app**.
+3. Choose **installed app**. Not "web app" and not "script", because Hobee has no client secret.
+4. Set the redirect URI to exactly:
+   ```
+   redditgallery://auth
+   ```
+5. Save it and copy the **client ID**, the short string under the app name.
+6. In Hobee, open **Settings → Reddit client ID**, paste it, then tap **Log in**.
+
+Reddit may ask you to submit an access request before new apps work. Mine is still pending as I write this, which is the whole reason the no-login path exists.
+
+You don't need a key for:
+- **Arctic Shift**: free and open, no key
+- **Redlib**: public front-ends, no key
+- **PullPush**: the key is optional. They moved free API traffic behind a paid key, so it's off by default.
+
+## Usage
+
+The app has four tabs in the bottom pill. They're icons only; long-press one to see its name.
+
+### Home
+
+When you're logged in, this is your Reddit feed. The ⋮ menu has:
+
+- **Refresh**
+- **Change Post Layout**: Card, Slides, Compact or Gallery
+- **Change Sort Type**
+- **Filter Posts**, **Filter by date**
+- **Hide Read Posts / Show Read Posts**
+- **Go To Top**, **Go to Subreddit**, **Go to User**, **Random**
+
+When you're logged out, it shows a "Log in with Reddit" button.
+
+### Deep Search
+
+1. Type a username (with or without `u/`).
+2. Hobee asks the live sources and the archives at the same time and keeps adding results as they arrive.
+3. The status lines at the top show what each source did (ok, 403, rate-limited and so on). **Retry** asks them again.
+4. Use the chips (All / Images / Videos / Galleries / Text) to filter. **Hide duplicates** removes reposts.
+5. Tap the calendar icon to jump to a year/month. **Load more** adds older months.
+6. Your recent deep searches are saved, so you can open them again quickly.
+
+The tiles say **Live** (still on Reddit), **Archive** (only found in an archive) or **Removed** (the media is gone; Hobee tries the Wayback Machine for it).
+
+### Search
+
+Search for **Users** or **Subreddits**. This uses Reddit's API, so for now it needs you to be logged in. There's also **Search cached posts**, which looks through what you've already loaded (title or subreddit), offline.
+
+### Settings
+
+| Setting | What it does |
+|---|---|
+| **Reddit client ID** | Your own installed-app client ID (see above). Needed for login. |
+| **Log in / Log out** | Reddit OAuth login with your client ID. |
+| **Theme** | Auto (follow the system), Light or Dark. |
+| **Test archives** | Pings PullPush and Arctic Shift and shows the HTTP result. Useful when Deep Search finds nothing. |
+| **Deep profile archives** | Turn PullPush and Arctic Shift on or off, and drag them to reorder. PullPush is off by default. |
+| **PullPush API key (optional)** | Paste a paid PullPush key if you have one. |
+| **Original quality** | The viewer and downloads use the original file instead of Reddit's resized preview. Grid thumbnails stay small either way. |
+| **Reddit RSS feed** | Uses `reddit.com/user/NAME/submitted/.rss` for the latest posts when logged out. |
+| **Redlib instances** | Uses public Redlib front-ends, and tries the next one if one fails. |
+| **Preferred Redlib instance** | Which instance to try first (default `redlib.ducks.party`). |
+| **Clear cached posts** | Wipes the local SQLite cache. |
+
+The order used when logged out is: Reddit JSON → Reddit RSS → Redlib → archives, merged by post id.
+
+## Supported sources
+
+| Source | Needs key? | Used for | Notes |
+|---|---|---|---|
+| Reddit OAuth API | Your client ID | Home, Search, live posts | Only when logged in |
+| Reddit JSON (`.json`) | No | Live posts | Often returns 403 now |
+| Reddit RSS | No | Latest posts | Only recent posts; thin records |
+| Redlib | No | Live posts | Public instances come and go |
+| Arctic Shift | No | Full history | Main archive |
+| PullPush | Optional (paid) | Full history | Off by default |
+| Wayback Machine | No | Removed media | Last-resort fallback |
+
+Media hosts: i.redd.it, preview.redd.it, Reddit galleries, v.redd.it videos and imgur. For embeds like redgifs, gfycat and imgur albums, Hobee shows the oEmbed thumbnail.
+
+## How it works
+
+### lib/ file by file
+
+| File | What's in it |
+|---|---|
+| `main.dart` | App start, theme, the four tabs (`IndexedStack`) and the logged-out prompt |
+| `nav_bar.dart` | The floating icon-only nav pill (tooltips and semantics labels) |
+| `nav.dart` | Shared tab/navigation state |
+| `glass.dart` | The frosted background and blur helpers |
+| `api.dart` | Reddit API client, request pacing, 429 handling |
+| `auth.dart` | Installed-app OAuth login and token storage |
+| `public_sources.dart` | Reddit JSON, RSS and Redlib (instance list) for the no-login path |
+| `archive.dart` | Arctic Shift and PullPush clients, Deep Search merge, cursors, media checks |
+| `archive_ui.dart` | Live/Archive/Removed labels and source status UI |
+| `models.dart` | Post model, media extraction, original-quality URL mapping |
+| `dedupe.dart` | Exact-key and dHash duplicate detection |
+| `db.dart` | SQLite cache (posts, hashes, recent searches) |
+| `feed.dart` | Paging for the Home feed and listings |
+| `posts_view.dart` | The post list/grid with its menus, layouts and month headers |
+| `gallery.dart` | Grid tiles |
+| `filters.dart` | Type and date filters |
+| `deep_search.dart` | The Deep Search screen |
+| `source_bar.dart` | The per-source status lines |
+| `search.dart` | Users/Subreddits search and cached search |
+| `viewer.dart` | Full-screen viewer, image fallback chain, video page |
+| `download.dart` | Saving to Pictures/Hobee and Movies/Hobee |
+| `settings.dart` | The Settings screen |
+
+### Data flow
+
+```mermaid
+flowchart LR
+  U[Username] --> L{Logged in?}
+  L -- yes --> O[Reddit OAuth]
+  L -- no --> J[Reddit JSON] --> R[RSS] --> D[Redlib]
+  U --> A[Arctic Shift]
+  U --> P[PullPush, optional]
+  O & J & R & D --> M[Merge by post id]
+  A & P --> M
+  M --> X[Dedupe: exact + dHash]
+  X --> C[(SQLite cache)]
+  X --> G[Grid with Live / Archive / Removed]
+  G --> V[Viewer: original → full → preview → thumb]
+  V -. 404/410 .-> W[Wayback Machine]
+```
+
+### Deep Search merge
+
+Every source returns posts, and they're merged by **Reddit post id**. RSS and Redlib give "thin" records (title, link, maybe one image), while the archives give the full JSON (gallery items, media metadata, timestamps). When the same id shows up in both, the thin row gets replaced by the full archive record, but the post keeps its "Live" status because a live source saw it.
+
+A profile query also searches the subreddit `u_NAME`. That's where profile posts live, and author search alone misses some of them.
+
+### Duplicate detection
+
+1. **Exact keys**: same normalised media URL means duplicate.
+2. **dHash**: each image is shrunk to 9×8 grayscale and adjacent pixels are compared, which gives a 64-bit hash. Two images whose hashes differ in **≤ 6 bits** (Hamming distance) count as the same picture. For galleries, up to 4 images are hashed.
+3. The hashes are cached in SQLite, so nothing gets hashed twice.
+
+### Original quality
+
+Most of this I learned from reading gallery-dl and bdfr:
+
+- `preview.redd.it/ID.jpg?...` → `i.redd.it/ID.jpg` (the original, without the resize params)
+- imgur: strip the size suffix (`s b t m l h r g`) from 6/8-character ids, e.g. `abc1234h.jpg` → `abc1234.jpg`
+- galleries: build the i.redd.it URL from each item's id and its mime type (`image/png` → `.png` and so on)
+- `&amp;` in URLs gets unescaped (otherwise Reddit returns 403)
+
+### When is media "gone"?
+
+Hobee checks the media URL:
+
+- **404 / 410**, or a redirect to Reddit's "removed" image → **gone**, so it tries the Wayback Machine (`id_` raw URLs)
+- **2xx** → alive
+- **403 / 429 / 5xx** → *unsure*, so it isn't marked gone (rate limits aren't deletions)
+
+### The viewer fallback chain
+
+The full-screen viewer tries, in order: original → full → url → preview → thumbnail. It moves to the next one only when the *current* URL fails. Images are decoded at screen size (capped at 1024–4096 px) so huge originals don't blow up memory. If everything fails, you get a retry button; retry clears the image cache and requests again. Long-press shows every URL it tried and its HTTP status.
+
+### Pagination cursors
+
+Arctic Shift is asked for 100 posts at a time with a `before` cursor. With several archives, the next cursor is the *newest* of each provider's oldest post, counting only providers that returned a full page. Taking the overall oldest would skip posts that another provider hadn't reached yet. Yes, I learned that the hard way (see the journey).
+
+### Rate limits
+
+Requests are paced at about **1 request per second per host**. On a 429, Hobee waits for Reddit's `x-ratelimit-reset` and retries once. A source that fails doesn't get switched off for the whole session anymore; it gets tried again on the next search.
+
+### Login flow
+
+Installed-app OAuth: Hobee opens Reddit's authorize page with your client ID, Reddit redirects back to `redditgallery://auth`, and Hobee exchanges the code for a token. Scopes: `identity read history save mysubreddits`. There's no client secret because installed apps don't have one.
+
+### Privacy
+
+No ads, no analytics, no tracking, no server of mine. Everything goes straight from your phone to Reddit/the sources above. The cache and settings stay on your phone.
+
+## Known issues
+
+- **Reddit JSON often returns 403** and **RSS gets rate-limited (429)**. Hobee falls back to the other sources, but sometimes you only get archive results.
+- **Login needs your own client ID**, and Reddit may still want an access request before it works.
+- **Search tab needs login** for now.
+- **Arctic Shift author search misses posts whose author was later set to `[deleted]`.** The `u_NAME` search catches some of them, but not all.
+- **Redlib instances go down.** If all of them fail, switch the preferred instance in Settings.
+- **Viewer black screen (1.3.5)**: some phones showed a black screen with only a retry icon. 1.3.6 reworks the fallback chain, decodes at screen size, sends a proper User-Agent and makes retry actually re-download. If it still happens to you, long-press the screen and open an issue with the URL/status it shows.
+
+## FAQ
+
+**Do I need a Reddit account?** No. Deep Search works logged out. You need an account plus your own client ID only for Home and Search.
+
+**Why doesn't Hobee ship its own Reddit key?** Reddit's API terms, and my access request is still pending. Bring-your-own keeps everyone inside their own rate limit.
+
+**Why is a post marked Archive and not Live?** No live source returned it this time. Either it was deleted, or Reddit JSON/RSS/Redlib were blocked when you searched.
+
+**Why did a post disappear after I turned on Hide duplicates?** It looked the same as another post (dHash distance ≤ 6). Turn it off to see everything.
+
+**Where are my downloads?** `Pictures/Hobee` and `Movies/Hobee`.
+
+**iOS?** No. I only have an Android phone.
+
+## Roadmap
+
+- Proper Reddit OAuth by default once my API access is approved
+- Public (no-login) sources for the Search tab
+- More testing on different phones
+
+## The journey
+
+Some of what went wrong while building this. These are real, mostly from my own commit messages and notes.
+
+- **API access pending.** I requested Reddit Data API access and it's still pending, so I had to make the whole app work without logging in first.
+- **Reddit JSON started returning 403.** The old `.json` trick stopped working for me, so I moved to RSS, then Redlib, then Arctic Shift as a proper archive.
+- **PullPush got rate-limited, then went paid.** It used to be my main archive. Now it's optional, with a key field.
+- **"No archive reachable".** Deep Search kept saying this. Turned out one failure disabled a source for the whole session. Now every search tries again.
+- **Profile posts missing.** Arctic Shift's author search misses posts that later got set to `[deleted]`. Adding a search of the `u_NAME` subreddit brought a lot of them back.
+- **Images flashing, then "media gone".** I had a size check that treated a 1-byte response as the real file, so live images got marked as removed. Fixed with proper status rules (404/410 = gone, 403/429/5xx = unsure).
+- **Load more skipped 62 posts.** The cursor took the oldest post across all archives, which jumped past posts another archive hadn't returned yet. Now it uses the newest of each provider's oldest.
+- **APK over 25 MB.** Too big to share easily, so the builds are now split per ABI.
+- **The bottom nav pill.** I fought with this layout for way too long: labels overflowing, a pill that wasn't centred, the highlight being the wrong size. In 1.3.6 it's icons only, with tooltips.
+- **Original quality.** I read through gallery-dl and bdfr to figure out the preview → i.redd.it and imgur suffix tricks.
+
+## Contributing
+
+Issues and PRs are welcome. Please:
+
+1. Run `flutter analyze` (should be clean) and `flutter test` before opening a PR.
+2. Keep it simple; this is a small personal app.
+3. Never commit keys, `key.properties`, `*.jks` or `local.properties`.
 
 ## Credits
 
-- [gallery-dl](https://github.com/mikf/gallery-dl)
-- [Bulk Downloader for Reddit](https://github.com/aliparlakci/bulk-downloader-for-reddit)
-- [Redlib](https://github.com/redlib-org/redlib)
-- [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift)
-
-## Disclaimer
-
-This is a personal, non-commercial project. It is not affiliated with or endorsed by Reddit. It respects Reddit's API terms.
+- [Arctic Shift](https://github.com/ArthurHeitmann/arctic_shift) for the archive API
+- [PullPush](https://pullpush.io)
+- [Redlib](https://github.com/redlib-org/redlib) and the people running public instances
+- [gallery-dl](https://github.com/mikf/gallery-dl) and [bdfr](https://github.com/aliparlakci/bulk-downloader-for-reddit), whose code taught me the original-quality tricks
+- The Internet Archive's Wayback Machine
+- Flutter and the package authors in `pubspec.yaml`
 
 ## License
 
-[MIT](LICENSE)
+MIT © Alok. See [LICENSE](LICENSE).
+
+## Disclaimer
+
+Hobee is an unofficial personal project and isn't affiliated with or endorsed by Reddit. Respect Reddit's terms, the archives' terms, and the people whose posts you're viewing. Don't use it to harass anyone or to re-upload other people's content.

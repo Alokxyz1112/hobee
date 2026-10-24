@@ -83,7 +83,7 @@ class _DeepSearchScreenState extends State<DeepSearchScreen> {
         builder: (_, _, _) {
           final recent = Recents.get(Recents.deep);
           return ListView(padding: bodyPadding(context), children: [
-            Text('Find a user\'s older and deleted posts from public archives (PullPush, Arctic Shift). No login needed.',
+            Text('Find a user\'s older and deleted posts from Reddit, RSS, Redlib and public archives. No login needed.',
                 style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
             const SizedBox(height: 16),
             TextField(

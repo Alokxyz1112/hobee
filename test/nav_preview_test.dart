@@ -33,13 +33,15 @@ void main() {
       expect(t.takeException(), isNull);
       final pill = t.getRect(find.byWidgetPredicate((w) => w is SizedBox && w.height == 56));
       final icon = t.getRect(find.byIcon(Icons.home));
-      final label = t.getRect(find.text('Home'));
       expect(pill.height, 56);
       expect(200 - pill.bottom, closeTo(inset + 8, 0.5));
       expect((icon.center.dy - pill.center.dy).abs(), lessThan(1.5));
-      expect(label.top >= pill.top && label.bottom <= pill.bottom, isTrue);
+      expect(find.text('Home'), findsNothing); // icons only
+      expect(find.byTooltip('Home'), findsOneWidget);
+      expect(find.bySemanticsLabel('Settings'), findsOneWidget);
+      expect((pill.center.dx - 200).abs(), lessThan(1.5));
       // ignore: avoid_print
-      print('inset $inset pill=$pill icon=$icon label=$label');
+      print('inset $inset pill=$pill icon=$icon');
       await t.runAsync(() async {
         final img = await (k.currentContext!.findRenderObject() as RenderRepaintBoundary).toImage();
         final bytes = await img.toByteData(format: ui.ImageByteFormat.png);

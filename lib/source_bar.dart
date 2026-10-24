@@ -50,7 +50,7 @@ class SourceBar extends StatelessWidget {
       builder: (ctx) => AlertDialog(
         title: const Text('Deep profile'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('Look up a user\'s older and deleted posts from public archives (PullPush, Arctic Shift).', style: TextStyle(fontSize: 13)),
+          const Text('Look up a user\'s older and deleted posts from Reddit, RSS, Redlib and public archives.', style: TextStyle(fontSize: 13)),
           const SizedBox(height: 12),
           TextField(controller: c, autofocus: true, decoration: const InputDecoration(prefixText: 'u/', hintText: 'username')),
           TextField(controller: sc, decoration: const InputDecoration(prefixText: 'r/', hintText: 'subreddit (optional)')),

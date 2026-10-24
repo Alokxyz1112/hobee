@@ -25,7 +25,7 @@ class HobeeNavBar extends StatelessWidget {
       child: Center(
         heightFactor: 1,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 340),
+          constraints: const BoxConstraints(maxWidth: 248),
           child: Glass(
             radius: BorderRadius.circular(height / 2),
             shadow: true,
@@ -40,10 +40,13 @@ class HobeeNavBar extends StatelessWidget {
                         button: true,
                         selected: i == selected,
                         label: _items[i].$3,
-                        child: InkWell(
-                          customBorder: const StadiumBorder(),
-                          onTap: () => onSelect(i),
-                          child: Center(child: _tile(i, cs)),
+                        child: Tooltip(
+                          message: _items[i].$3,
+                          child: InkWell(
+                            customBorder: const StadiumBorder(),
+                            onTap: () => onSelect(i),
+                            child: Center(child: _tile(i, cs)),
+                          ),
                         ),
                       ),
                     ),
@@ -58,20 +61,13 @@ class HobeeNavBar extends StatelessWidget {
 
   Widget _tile(int i, ColorScheme cs) {
     final sel = i == selected;
-    final (off, on, label) = _items[i];
+    final (off, on, _) = _items[i];
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       height: 40,
-      padding: EdgeInsets.symmetric(horizontal: sel ? 12 : 8),
+      width: 48,
       decoration: ShapeDecoration(shape: const StadiumBorder(), color: sel ? accent.withValues(alpha: 0.16) : Colors.transparent),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(sel ? on : off, size: 22, color: sel ? accent : cs.onSurfaceVariant),
-        if (sel) ...[
-          const SizedBox(width: 6),
-          Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.fade, softWrap: false,
-              style: TextStyle(fontSize: 12, height: 1.0, fontWeight: FontWeight.w600, color: accent))),
-        ],
-      ]),
+      child: Icon(sel ? on : off, size: 22, color: sel ? accent : cs.onSurfaceVariant),
     );
   }
 }
