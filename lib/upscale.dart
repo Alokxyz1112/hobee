@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:isolate';
 import 'dart:math' as math;
 import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter/foundation.dart';
@@ -112,13 +111,15 @@ class UpscaleResult {
 /// Largest output we build, in pixels (about 64 MB of RGB while working).
 const maxOutPixels = 20000000;
 
-class _Decoded {
+/// Decoded RGB pixels. Only plain data, so it can cross isolates.
+class DecodedImage {
   final Uint8List rgb;
   final int w, h, ow, oh;
-  _Decoded(this.rgb, this.w, this.h, this.ow, this.oh);
+  DecodedImage(this.rgb, this.w, this.h, this.ow, this.oh);
 }
 
-_Decoded _decode((Uint8List, int) a) {
+/// Isolate entry (top level, plain data in and out): encoded bytes -> RGB, shrunk if huge.
+DecodedImage decodeForUpscale((Uint8List, int) a) {
   var im = img.decodeImage(a.$1);
   if (im == null) throw Exception('Could not read this image');
   final ow = im.width, oh = im.height;
@@ -129,10 +130,11 @@ _Decoded _decode((Uint8List, int) a) {
     im = img.copyResize(im, width: (ow * f).floor(), height: (oh * f).floor(), interpolation: img.Interpolation.average);
   }
   im = im.convert(numChannels: 3, format: img.Format.uint8);
-  return _Decoded(Uint8List.fromList(im.getBytes(order: img.ChannelOrder.rgb)), im.width, im.height, ow, oh);
+  return DecodedImage(Uint8List.fromList(im.getBytes(order: img.ChannelOrder.rgb)), im.width, im.height, ow, oh);
 }
 
-Uint8List _finish((Uint8List, int, int, int, int) a) {
+/// Isolate entry (top level, plain data in and out): 4x RGB -> resized to the target -> PNG.
+Uint8List finishUpscale((Uint8List, int, int, int, int) a) {
   var im = img.Image.fromBytes(width: a.$2, height: a.$3, bytes: a.$1.buffer, numChannels: 3, order: img.ChannelOrder.rgb);
   if (im.width != a.$4) im = img.copyResize(im, width: a.$4, height: a.$5, interpolation: img.Interpolation.cubic);
   return img.encodePng(im, level: 6);
@@ -203,11 +205,8 @@ class Upscaler {
   /// Upscales encoded image bytes by [scale] (2, 3 or 4) and returns a PNG.
   static Future<UpscaleResult> run(Uint8List bytes, int scale, UpModel m,
       {void Function(double)? progress, bool Function()? cancelled}) async {
-    assert(scale >= 2 && scale <= 4);
-    final d = await Isolate.run(() => _decode((bytes, scale)));
     final ses = await _session(m);
-    final tile = m == UpModel.ultra ? 96 : 128; // smaller tiles for the big net so phones with little RAM survive
-    final rgb4 = await upscaleRgb(d.rgb, d.w, d.h, (x, s) async {
+    return upscalePipeline(bytes, scale, (x, s) async {
       final input = await OrtValue.fromList(x, [1, 3, s, s]);
       try {
         final out = await ses.run({'input': input});
@@ -218,10 +217,24 @@ class Upscaler {
       } finally {
         await input.dispose();
       }
-    }, size: tile, pad: 16, progress: (a, b) => progress?.call(a / b), cancelled: cancelled);
-    final tw = d.w * scale, th = d.h * scale;
-    final png = await Isolate.run(() => _finish((rgb4, d.w * 4, d.h * 4, tw, th)));
-    if (kDebugMode) debugPrint('upscale ${d.w}x${d.h} -> ${tw}x$th with ${m.name}');
-    return UpscaleResult(png, tw, th, d.ow, d.oh, d.w != d.ow);
+    }, tile: m == UpModel.ultra ? 96 : 128, progress: progress, cancelled: cancelled, label: m.name);
   }
+}
+
+/// The whole upscale: decode in a background isolate, run [model] tile by tile here (the ONNX plugin is already
+/// async and native, and plugins need the main isolate), then resize and encode in a background isolate.
+///
+/// The background work goes through [compute] with top level functions and plain records only. An earlier version
+/// used `Isolate.run(() => ...)` closures, which dragged the caller's progress callback (and with it the widget
+/// tree) along and crashed with "object is unsendable".
+Future<UpscaleResult> upscalePipeline(Uint8List bytes, int scale, Future<List<num>> Function(Float32List, int s) model,
+    {int tile = 128, void Function(double)? progress, bool Function()? cancelled, String label = ''}) async {
+  if (scale < 2 || scale > 4) throw ArgumentError.value(scale, 'scale');
+  final d = await compute(decodeForUpscale, (bytes, scale));
+  final rgb4 = await upscaleRgb(d.rgb, d.w, d.h, model,
+      size: tile, pad: 16, progress: (a, b) => progress?.call(a / b), cancelled: cancelled);
+  final tw = d.w * scale, th = d.h * scale;
+  final png = await compute(finishUpscale, (rgb4, d.w * 4, d.h * 4, tw, th));
+  if (kDebugMode) debugPrint('upscale ${d.w}x${d.h} -> ${tw}x$th with $label');
+  return UpscaleResult(png, tw, th, d.ow, d.oh, d.w != d.ow);
 }

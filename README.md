@@ -372,7 +372,7 @@ Some of what went wrong while building this. All of these actually happened.
 
 ## Changelog
 
-- **1.3.10**: Clean downloads. Single, gallery and upscaled saves drop EXIF (including GPS and software tags), XMP, IPTC and comments from JPEG, PNG, WebP and GIF. Only the ICC color profile is kept. No camera or device info is ever written. Files are named by save time (for example `20261025_233900.jpg`) and go to plain `Pictures` and `Movies` folders. Toggle in Settings, on by default. Videos are not changed.
+- **1.3.10**: Clean downloads. Single, gallery and upscaled saves drop EXIF (including GPS and software tags), XMP, IPTC and comments from JPEG, PNG, WebP and GIF. Only the ICC color profile is kept. No camera or device info is ever written. Files are named by save time (for example `20261025_233900.jpg`) and go to plain `Pictures` and `Movies` folders. Toggle in Settings, on by default. Videos are not changed. Also fixes the upscaler crash from 1.3.9 ("object is unsendable" red screen when tapping Upscale): the background work now only gets plain image data, and errors show a short message with a Retry button.
 - **1.3.9**: On-device image upscaling with Real-ESRGAN.
 
 ## Contributing

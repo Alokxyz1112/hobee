@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'download.dart';
@@ -139,6 +139,7 @@ class _UpscaleScreenState extends State<UpscaleScreen> {
     } on UpscaleCancelled {
       if (mounted) Navigator.pop(context);
     } catch (e) {
+      if (kDebugMode) debugPrint('upscale failed: $e');
       if (mounted) setState(() => error = e);
     }
   }
@@ -183,9 +184,9 @@ class _UpscaleScreenState extends State<UpscaleScreen> {
           ? _center([
               const Icon(Icons.error_outline, color: Colors.white70, size: 40),
               const SizedBox(height: 8),
-              Text('$error', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70)),
+              Text(friendlyUpscaleError(error!), textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70)),
               const SizedBox(height: 12),
-              FilledButton.icon(onPressed: _go, icon: const Icon(Icons.refresh), label: const Text('Try again')),
+              FilledButton.icon(onPressed: _go, icon: const Icon(Icons.refresh), label: const Text('Retry')),
             ])
           : r == null
               ? _center([
@@ -259,4 +260,15 @@ class _Left extends CustomClipper<Rect> {
   Rect getClip(Size s) => Rect.fromLTWH(0, 0, s.width * f, s.height);
   @override
   bool shouldReclip(_Left o) => o.f != f;
+}
+
+/// Short message for the user. Details only go to the debug log.
+String friendlyUpscaleError(Object e) {
+  final t = e.toString().toLowerCase();
+  if (t.contains('socket') || t.contains('http') || t.contains('download') || t.contains('connection')) {
+    return 'Could not get the image or model. Check your connection and retry.';
+  }
+  if (t.contains('could not read')) return 'This image could not be read.';
+  if (t.contains('memory')) return 'Not enough memory for this one. Try a smaller scale or the Fast model.';
+  return 'Upscaling failed. Please retry.';
 }
