@@ -60,3 +60,7 @@ local.properties
 lib.bak-*/
 lib-backup-*/
 .gradle/
+
+# signing keys stay local
+/keystore
+*.jks

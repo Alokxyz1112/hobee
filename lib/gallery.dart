@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'glass.dart';
 import 'api.dart';
 import 'archive.dart';
@@ -64,6 +66,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     subSort.addListener(_switchSort);
     viewFilters.addListener(_rebuild);
     Dedupe.version.addListener(_rebuild);
+    MediaCheck.gone.addListener(_goneChanged);
     dateRange.addListener(_seek);
     sc.addListener(() {
       if (sc.position.pixels > sc.position.maxScrollExtent - 1200) _more();
@@ -77,6 +80,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
     subSort.removeListener(_switchSort);
     viewFilters.removeListener(_rebuild);
     Dedupe.version.removeListener(_rebuild);
+    MediaCheck.gone.removeListener(_goneChanged);
+    _goneT?.cancel();
     dateRange.removeListener(_seek);
     super.dispose();
   }
@@ -128,9 +133,16 @@ class _GalleryScreenState extends State<GalleryScreen> {
     _rebuild();
   }
 
+  Timer? _goneT;
+  void _goneChanged() {
+    if (!hideGone.value || !isDeep(effectiveSource())) return;
+    _goneT ??= Timer(const Duration(milliseconds: 700), () { _goneT = null; _rebuild(); });
+  }
+
   void _rebuild() {
     if (!_active) return;
-    var shown = _all.where(matches).toList();
+    final g = hideGone.value && isDeep(effectiveSource()) ? MediaCheck.gone.value : const <String>{};
+    var shown = _all.where((p) => matches(p) && !g.contains(p.id)).toList();
     var cp = <String, List<Post>>{};
     if (dupesOn && mediaFilter.value != MediaFilter.text) (shown, cp) = Dedupe.collapse(shown);
     copies = cp;
@@ -261,6 +273,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
         onRefresh: _refreshTop,
         child: CustomScrollView(
           controller: sc,
+          // Build (and so start loading) about two screens of tiles ahead of the viewport.
+          scrollCacheExtent: const ScrollCacheExtent.pixels(1600),
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             SliverAppBar(pinned: true, flexibleSpace: const GlassBar(), 

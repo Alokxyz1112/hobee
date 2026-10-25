@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.3.6-red">
+  <img alt="version" src="https://img.shields.io/badge/version-1.3.7-red">
   <img alt="platform" src="https://img.shields.io/badge/platform-Android-3DDC84">
   <img alt="flutter" src="https://img.shields.io/badge/Flutter-3.47.8-02569B">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-blue">
@@ -74,7 +74,7 @@ The photos are SFW nature posts from a public profile. You can see real source e
 
 ## Install
 
-1. Download `Hobee-1.3.6-arm64.apk` from the [Releases](../../releases) page. It's the build for almost every phone from the last ~6 years (arm64-v8a).
+1. Download `Hobee-1.3.7-arm64.apk` from the [Releases](../../releases) page. It's the build for almost every phone from the last ~6 years (arm64-v8a).
 2. Open it on your phone and allow "install unknown apps" for your browser or file manager.
 3. That's it. Deep Search works straight away without logging in.
 
@@ -270,8 +270,10 @@ Most of this I learned from reading gallery-dl and bdfr:
 Hobee checks the media URL:
 
 - **404 / 410**, or a redirect to Reddit's "removed" image → **gone**, so it tries the Wayback Machine (`id_` raw URLs)
-- **2xx** → alive
-- **403 / 429 / 5xx** → *unsure*, so it isn't marked gone (rate limits aren't deletions)
+- **2xx** → alive. This is a normal GET (the body is dropped as soon as the status comes back), not a 1-byte Range request. preview.redd.it happily answers a Range request with 206 even when the picture was deleted, and only a normal GET tells you the truth (404 plus a grey placeholder).
+- **403 / 429 / 5xx** → *unsure*, so it isn't marked gone (rate limits aren't deletions). It waits a bit and asks once more first.
+
+At most 6 of these checks run at the same time, so scrolling fast through a big profile doesn't hammer Reddit or the Wayback Machine. If nothing works, the tile says **Image gone** instead of spinning forever. Tap it to check again, or turn on **Hide gone images** in the filter sheet (Deep Search only) to drop those tiles. Preview links are signed (the `s=` part), so Hobee never edits their size params; it only unescapes `&amp;`.
 
 ### The viewer fallback chain
 
@@ -300,6 +302,7 @@ No ads, no analytics, no tracking, no server of mine. Everything goes straight f
 - **Search tab needs login** for now.
 - **Arctic Shift author search misses posts whose author was later set to `[deleted]`.** The `u_NAME` search catches some of them, but not all.
 - **Redlib instances go down.** If all of them fail, switch the preferred instance in Settings.
+- **Some archived pictures are just gone.** If the poster deleted the image, Reddit deletes the original, every preview size and the thumbnail. Arctic Shift and PullPush only keep the post text and links, not the files, so unless the Wayback Machine happened to save it there's nothing left to show. In my test run that was about 1 in 5 archive images. Those now show "Image gone" instead of a reload icon.
 - **Viewer black screen (1.3.5)**: some phones showed a black screen with only a retry icon. 1.3.6 reworks the fallback chain, decodes at screen size, sends a proper User-Agent and makes retry actually re-download. If it still happens to you, long-press the screen and open an issue with the URL/status it shows.
 
 ## FAQ
@@ -335,6 +338,8 @@ Some of what went wrong while building this. All of these actually happened.
 - **Load more skipped 62 posts.** The cursor took the oldest post across all archives, which jumped past posts another archive hadn't returned yet. Now it uses the newest of each provider's oldest.
 - **APK over 25 MB.** Too big to share easily, so the builds are now split per ABI.
 - **The bottom nav pill.** I fought with this layout for way too long: labels overflowing, a pill that wasn't centred, the highlight being the wrong size. In 1.3.6 it's icons only, with tooltips.
+- **Grey tiles with a reload icon (1.3.6).** Deep Search was full of them. I spent an evening curling every URL the app built and found the dumb part: my "is it alive" check asked for 1 byte with a Range header, and preview.redd.it says 206 to that even for deleted images. A normal GET says 404. So dead previews got cached as working, every image load failed, and the tile sat there with a reload icon that just tried the same dead links again. 1.3.7 checks properly, retries with a short backoff, shows "Image gone" when it really is gone, and the reload button now clears the cache and checks again. On 199 archive tiles from 4 real profiles: before, 34 were stuck on the reload icon; after, 1 was (159 load, 39 are truly gone).
+- **Same picture three times.** Deep Search merges Live, Arctic Shift and PullPush, and people repost. Dupes now also match on post id and on imgur ids with the size letter stripped, and the copy that stays is the best one (Live, then Archive, then Removed, then the biggest). The month counts only count what's shown.
 - **Original quality.** I read through gallery-dl and bdfr to figure out the preview → i.redd.it and imgur suffix tricks.
 
 ## Contributing

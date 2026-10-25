@@ -25,6 +25,7 @@ void main() {
     MediaCheck.readCache = (k) async => cache[k];
     MediaCheck.writeCache = (k, v) async => cache[k] = v;
     MediaCheck.wayback = (_) async => null;
+    MediaCheck.retries = 0;
     MediaCheck.client = () => MockClient((rq) async => (routes[rq.url.toString()] ?? () => http.Response('', 404))());
   });
 

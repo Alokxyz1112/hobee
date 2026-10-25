@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'archive.dart';
 import 'models.dart';
 
-/// Image that, for archive posts, lazily checks availability (original → preview → Wayback) and shows a placeholder if gone.
+/// Image that, for archive posts, lazily checks availability (original -> preview -> thumbnail -> Wayback) and shows
+/// an 'Image gone' state when nothing reachable is left. Tap that state to check again.
 class ArchiveImage extends StatefulWidget {
   final Post post;
   final MediaItem item;
@@ -26,47 +27,79 @@ class _ArchiveImageState extends State<ArchiveImage> {
     if (widget.deep) _f = MediaCheck.resolve(widget.post, widget.item, thumb: _thumbMode);
   }
 
+  Future<void> _recheck() async {
+    await MediaCheck.forget(widget.post, widget.item, thumb: _thumbMode);
+    if (mounted) setState(() => _f = MediaCheck.resolve(widget.post, widget.item, thumb: _thumbMode));
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_f == null) return _img(_raw);
     return FutureBuilder<String?>(
       future: _f,
       builder: (ctx, s) {
-        // While checking, show the image we already have instead of a spinner.
-        if (s.connectionState != ConnectionState.done) return _img(_raw);
-        // Only a positive "gone" verdict (404/410/removed placeholder, no preview/Wayback copy) shows the placeholder.
-        return s.data == null ? const MediaGone() : _img(s.data!);
+        if (s.connectionState != ConnectionState.done) return _box(context, null);
+        return s.data == null ? GestureDetector(onTap: _recheck, child: const MediaGone()) : _img(s.data!);
       },
     );
   }
 
   Widget _img(String u) => u.isEmpty
       ? _box(context, const Icon(Icons.movie))
-      : FallbackImage(urls: [u, _raw, widget.item.thumb, ?widget.item.preview], fit: widget.fit, cacheWidth: widget.cacheWidth);
+      : FallbackImage(urls: [u, _raw, widget.item.thumb, ?widget.item.preview], fit: widget.fit, cacheWidth: widget.cacheWidth,
+          onAllGone: widget.deep ? () => MediaCheck.markGone(widget.post.id) : null);
 
-  Widget _box(BuildContext c, Widget child) => Container(color: Theme.of(c).colorScheme.surfaceContainerHighest, alignment: Alignment.center, child: child);
+  Widget _box(BuildContext c, Widget? child) => Container(color: Theme.of(c).colorScheme.surfaceContainerHighest, alignment: Alignment.center, child: child);
 }
 
-/// Network image that tries each URL in turn on load errors. A load error is never treated as "media gone":
-/// it ends in a tap-to-retry icon. Once a frame has decoded it stays visible (gapless) even if a rebuild fails.
+/// Network image that tries each URL in turn. If every URL answered 404/410 it shows 'Image gone'; other errors
+/// (offline, 429, 5xx) retry on their own with backoff, then leave a tap-to-retry icon that really reloads.
 class FallbackImage extends StatefulWidget {
   final List<String> urls;
   final BoxFit fit;
   final int? cacheWidth;
-  const FallbackImage({super.key, required this.urls, this.fit = BoxFit.cover, this.cacheWidth});
+  final VoidCallback? onAllGone;
+  const FallbackImage({super.key, required this.urls, this.fit = BoxFit.cover, this.cacheWidth, this.onAllGone});
   @override
   State<FallbackImage> createState() => _FallbackImageState();
 }
 
+const imageHeaders = {'User-Agent': 'android:com.alok.hobee:v$appVersion (personal gallery app)'};
+const _autoRetries = 2;
+
 class _FallbackImageState extends State<FallbackImage> {
   int _i = 0;
   int _retry = 0;
+  bool _soft = false; // saw an error that wasn't a clear 404/410
   List<String> get _urls => widget.urls.where((u) => u.startsWith('http')).toSet().toList();
 
   @override
   void didUpdateWidget(FallbackImage old) {
     super.didUpdateWidget(old);
-    if (old.urls.join() != widget.urls.join()) _i = 0;
+    if (old.urls.join() != widget.urls.join()) { _i = 0; _soft = false; }
+  }
+
+  void _again() {
+    for (final u in _urls) {
+      PaintingBinding.instance.imageCache.evict(NetworkImage(u, headers: imageHeaders));
+    }
+    setState(() { _i = 0; _retry++; _soft = false; });
+  }
+
+  final Set<String> _handled = {};
+  void _failed(String url, Object err) {
+    if (!_handled.add('$url#$_retry') || _i >= _urls.length || _urls[_i] != url) return;
+    final code = err is NetworkImageLoadException ? err.statusCode : 0;
+    if (code != 404 && code != 410) _soft = true;
+    _i++;
+    if (_i >= _urls.length) {
+      if (_soft && _retry < _autoRetries) {
+        Future.delayed(Duration(seconds: 2 << _retry), () { if (mounted && _i >= _urls.length) _again(); });
+      } else if (!_soft) {
+        widget.onAllGone?.call();
+      }
+    }
+    setState(() {});
   }
 
   @override
@@ -75,13 +108,19 @@ class _FallbackImageState extends State<FallbackImage> {
     final cs = Theme.of(context).colorScheme;
     if (_i >= us.length) {
       return GestureDetector(
-        onTap: () => setState(() { _i = 0; _retry++; }),
-        child: Container(color: cs.surfaceContainerHighest, alignment: Alignment.center, child: Icon(Icons.refresh, color: cs.onSurfaceVariant)),
+        onTap: _again,
+        child: _soft
+            ? Container(color: cs.surfaceContainerHighest, alignment: Alignment.center, child: Icon(Icons.refresh, color: cs.onSurfaceVariant))
+            : const MediaGone(),
       );
     }
-    return Image.network(us[_i], key: ValueKey('${us[_i]}#$_retry'), fit: widget.fit, cacheWidth: widget.cacheWidth, gaplessPlayback: true,
-        errorBuilder: (_, _, _) {
-          WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) setState(() => _i++); });
+    final cur = us[_i];
+    return Image(
+        image: ResizeImage.resizeIfNeeded(widget.cacheWidth, null, NetworkImage(us[_i], headers: imageHeaders)),
+        key: ValueKey('${us[_i]}#$_retry'), fit: widget.fit, gaplessPlayback: true,
+        frameBuilder: (_, child, frame, sync) => frame == null && !sync ? Container(color: cs.surfaceContainerHighest) : child,
+        errorBuilder: (_, err, _) {
+          WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _failed(cur, err); });
           return Container(color: cs.surfaceContainerHighest);
         });
   }
@@ -97,7 +136,7 @@ class MediaGone extends StatelessWidget {
       alignment: Alignment.center,
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Icon(Icons.image_not_supported_outlined, color: cs.onSurfaceVariant),
-        Text('media gone', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+        Text('Image gone', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
       ]),
     );
   }

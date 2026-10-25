@@ -9,7 +9,7 @@ import 'db.dart';
 import 'models.dart';
 import 'public_sources.dart';
 
-const appVersion = '1.3.6';
+const appVersion = '1.3.7';
 const _ua = 'android:com.alok.hobee:v$appVersion (personal gallery app)';
 
 /// Archive providers. Order + enabled state are user-configurable in Settings.
@@ -441,22 +441,62 @@ class MediaCheck {
   @visibleForTesting
   static Future<String?> Function(String url) wayback = _wayback;
   @visibleForTesting
-  static void reset() => _inflight.clear();
+  static int retries = 1;
+  @visibleForTesting
+  static void reset() { _inflight.clear(); gone.value = const {}; _active = 0; _waiters.clear(); }
+
+  /// Post ids whose first image turned out to be gone everywhere (used by 'Hide gone images').
+  static final gone = ValueNotifier<Set<String>>(const {});
+  static void markGone(String id) {
+    if (!gone.value.contains(id)) gone.value = {...gone.value, id};
+  }
+
+  // Bounded concurrency so a fast scroll doesn't fire hundreds of probes at once.
+  static const maxConcurrent = 6;
+  static int _active = 0;
+  static final List<Completer<void>> _waiters = [];
+  static Future<T> _limit<T>(Future<T> Function() f) async {
+    while (_active >= maxConcurrent) {
+      final c = Completer<void>();
+      _waiters.add(c);
+      await c.future;
+    }
+    _active++;
+    try {
+      return await f();
+    } finally {
+      _active--;
+      if (_waiters.isNotEmpty) _waiters.removeAt(0).complete();
+    }
+  }
+
+  /// Forget a result so a tap on 'retry' really checks again.
+  static Future<void> forget(Post post, MediaItem item, {bool thumb = false}) async {
+    final key = thumb ? item.thumb : item.full;
+    final k = key.isNotEmpty ? key : (item.url.isNotEmpty ? item.url : 'post:${post.id}');
+    _inflight.remove('$thumb|$k');
+    await writeCache(_cacheKey(k), '?');
+    gone.value = {...gone.value}..remove(post.id);
+  }
 
   /// Returns a working URL, or null if the media is gone.
   static Future<String?> resolve(Post post, MediaItem item, {bool thumb = false}) {
     final key = thumb ? item.thumb : item.full;
     // Never share an empty key between posts (that cached one post's result for all of them).
     final k = key.isNotEmpty ? key : (item.url.isNotEmpty ? item.url : 'post:${post.id}');
-    return _inflight.putIfAbsent('$thumb|$k', () => _resolve(post, item, k));
+    return _inflight.putIfAbsent('$thumb|$k', () => _limit(() => _resolve(post, item, k)).then((u) {
+      if (u == null) markGone(post.id);
+      return u;
+    }));
   }
 
-  // v2: results cached by <=1.3.4 used a size heuristic that flagged valid images; ignore them.
-  static String _cacheKey(String k) => 'v2|$k';
+  // v3: <=1.3.6 probed with a 1-byte Range request, which preview.redd.it answers with 206 even for deleted
+  // images (a full GET is 404 + a grey placeholder), so dead previews were cached as working. Ignore those.
+  static String _cacheKey(String k) => 'v3|$k';
 
   static Future<String?> _resolve(Post post, MediaItem item, String key) async {
     final cached = await readCache(_cacheKey(key));
-    if (cached != null) return cached.isEmpty ? null : cached;
+    if (cached != null && cached != '?') return cached.isEmpty ? null : cached;
     final cands = <String>[
       if (key.startsWith('http')) key,
       if (item.type == MediaType.image) ...[item.full, item.url, ?item.preview],
@@ -468,7 +508,12 @@ class MediaCheck {
     final c = client();
     try {
       for (final u in cands) {
-        final a = await alive(u, c);
+        var a = await alive(u, c);
+        // Network hiccup / 429 / 5xx: back off and ask once more before moving on.
+        for (var t = 0; a == null && t < retries; t++) {
+          await Future.delayed(Duration(milliseconds: 600 * (1 << t)));
+          a = await alive(u, c);
+        }
         if (a == true) { ok = u; break; }
         if (a == null) unsure ??= u;
       }
@@ -477,7 +522,12 @@ class MediaCheck {
     }
     if (ok == null && unsure != null) return unsure;
     if (ok == null && cands.isEmpty) return key.startsWith('http') ? key : null;
-    ok ??= await wayback(item.url.isNotEmpty ? item.url : key);
+    // Wayback: try the original upload first, then the preview it was resized from.
+    for (final w in {if (item.url.startsWith('http')) item.url, if (key.startsWith('http')) key, ?item.preview}) {
+      if (ok != null) break;
+      ok = await wayback(w);
+    }
+    if (ok == null) debugPrint('hobee: media gone for ${post.id} (${cands.length} candidates tried)');
     await writeCache(_cacheKey(key), ok ?? '');
     return ok;
   }
@@ -509,7 +559,9 @@ class MediaCheck {
     return null; // 401/403/429/5xx: not proof it's gone
   }
 
-  /// Tiny ranged GET (HEAD is often 403/405 on Reddit CDNs); redirects followed by hand so placeholders are seen.
+  /// Plain GET whose body is dropped as soon as the status arrives. No Range header: preview.redd.it replies 206 to a
+  /// ranged request even when the image is deleted (only the full GET says 404), and HEAD is often 403/405.
+  /// Redirects are followed by hand so placeholders like imgur's removed.png are seen.
   @visibleForTesting
   static Future<bool?> alive(String url, [http.Client? c]) async {
     final cl = c ?? client();
@@ -518,9 +570,9 @@ class MediaCheck {
       for (var hop = 0; hop < 4; hop++) {
         final rq = http.Request('GET', u)
           ..followRedirects = false
-          ..headers.addAll({'User-Agent': _ua, 'Range': 'bytes=0-0', 'Accept': 'image/*,video/*,*/*'});
+          ..headers.addAll({'User-Agent': _ua, 'Accept': 'image/*,video/*,*/*'});
         final s = await cl.send(rq).timeout(const Duration(seconds: 10));
-        await s.stream.drain<void>();
+        unawaited(s.stream.listen(null, cancelOnError: true).cancel().catchError((_) {}));
         final loc = s.headers['location'];
         final v = verdict(u, s.statusCode, loc);
         if (s.statusCode >= 300 && s.statusCode < 400 && v == null && loc != null) {

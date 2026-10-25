@@ -84,11 +84,26 @@ class Dedupe {
     final copies = <String, List<Post>>{};
     for (var i = 0; i < n; i++) {
       if (find(i) != i) continue;
-      reps.add(posts[i]);
       final g = groups[i]!;
-      if (g.length > 1) copies[posts[i].id] = g;
+      // Show the best copy (Live > Archive > Removed, then biggest image) at the slot of the earliest one.
+      final best = g.length == 1 ? g.first : g.reduce((a, b) => quality(b) > quality(a) ? b : a);
+      reps.add(best);
+      if (g.length > 1) copies[best.id] = [best, ...g.where((p) => !identical(p, best))];
     }
     return (reps, copies);
+  }
+
+  /// Higher is better: live beats archived beats removed, then resolution of the preview source.
+  static int quality(Post p) {
+    final r = p.raw;
+    final removed = r['removed_by_category'] != null || r['author'] == '[deleted]' || r['selftext'] == '[removed]' || r['selftext'] == '[deleted]';
+    final tier = r['_hobee_live'] == true ? 2 : (removed ? 0 : 1);
+    var px = 0;
+    try {
+      final s = r['preview']['images'][0]['source'];
+      px = ((s['width'] as num) * (s['height'] as num)).toInt();
+    } catch (_) {}
+    return tier * 1000000000 + px.clamp(0, 999999999);
   }
 
   static bool _similar(List<int> a, List<int> b) {
@@ -116,6 +131,7 @@ class Dedupe {
     final r = p.raw;
     final cp = r['crosspost_parent'];
     if (cp is String && cp.isNotEmpty) yield 'cp:${cp.replaceFirst('t3_', '')}';
+    yield 'id:${p.id}'; // same post from Live + Arctic Shift + PullPush
     yield 'cp:${p.id}'; // the original of a crosspost collapses with its crossposts
     final meta = r['media_metadata'];
     if (meta is Map && meta.isNotEmpty) {
@@ -125,12 +141,12 @@ class Dedupe {
     }
     if (p.media.length == 1) {
       for (final u in [p.media.first.url, '${r['url'] ?? ''}']) {
-        final m = _file.firstMatch(u);
+        final m = _file.firstMatch(originalOf(u));
         if (m != null) yield 'f:${m.group(1)}';
       }
       try {
         final src = '${r['preview']['images'][0]['source']['url']}';
-        final m = _file.firstMatch(src);
+        final m = _file.firstMatch(originalOf(src));
         if (m != null) yield 'f:${m.group(1)}';
       } catch (_) {}
     }
@@ -178,7 +194,7 @@ class Dedupe {
 
   static Future<int?> _hashUrl(String url) async {
     try {
-      final r = await http.get(Uri.parse(url), headers: {'User-Agent': 'android:com.alok.hobee:v1.3.1'}).timeout(const Duration(seconds: 15));
+      final r = await http.get(Uri.parse(url), headers: {'User-Agent': 'android:com.alok.hobee:v1.3.7 (personal gallery app)'}).timeout(const Duration(seconds: 15));
       if (r.statusCode != 200 || r.bodyBytes.isEmpty) return null;
       return await compute(dHash, r.bodyBytes);
     } catch (_) {

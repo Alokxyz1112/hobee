@@ -30,6 +30,8 @@ final readIds = <String>{};
 /// Collapse reposts/crossposts of the same image. Separate defaults: off for feeds, on for Deep Search.
 final hideDupes = ValueNotifier<bool>(false);
 final hideDupesDeep = ValueNotifier<bool>(true);
+/// Deep Search: hide tiles whose image is gone everywhere instead of showing 'Image gone'.
+final hideGone = ValueNotifier<bool>(false);
 bool get dupesOn => currentSource.value.startsWith('deep:') ? hideDupesDeep.value : hideDupes.value;
 ValueNotifier<bool> get dupesNotifier => currentSource.value.startsWith('deep:') ? hideDupesDeep : hideDupes;
 
@@ -45,7 +47,7 @@ void markRead(String id) {
 bool get sortable => currentSource.value == 'home' || currentSource.value.startsWith('r/') || currentSource.value.startsWith('u/');
 
 /// Fires when anything affecting what is displayed (but not what is fetched) changes.
-final viewFilters = Listenable.merge([mediaFilter, dateRange, searchQuery, hideRead, hideDupes, hideDupesDeep]);
+final viewFilters = Listenable.merge([mediaFilter, dateRange, searchQuery, hideRead, hideDupes, hideDupesDeep, hideGone]);
 
 Future<void> loadFilterPrefs() async {
   final sp = await SharedPreferences.getInstance();
@@ -57,6 +59,8 @@ Future<void> loadFilterPrefs() async {
   originalQuality.addListener(() => sp.setBool('originalQuality', originalQuality.value));
   hideDupes.value = sp.getBool('hideDupes') ?? false;
   hideDupesDeep.value = sp.getBool('hideDupesDeep') ?? true;
+  hideGone.value = sp.getBool('hideGone') ?? false;
+  hideGone.addListener(() => sp.setBool('hideGone', hideGone.value));
   hideDupes.addListener(() => sp.setBool('hideDupes', hideDupes.value));
   hideDupesDeep.addListener(() => sp.setBool('hideDupesDeep', hideDupesDeep.value));
   readIds.addAll(sp.getStringList('readIds') ?? []);
@@ -347,6 +351,9 @@ Future<void> showFilterSheet(BuildContext context) => _sheet(context, (ctx) => L
           const Divider(),
           _row(ctx, Icons.filter_none, 'Hide duplicates', () => dupesNotifier.value = !dupesNotifier.value,
               trailing: Switch(value: dupesOn, onChanged: (v) => dupesNotifier.value = v)),
+          if (currentSource.value.startsWith('deep:'))
+            _row(ctx, Icons.hide_image_outlined, 'Hide gone images', () => hideGone.value = !hideGone.value,
+                trailing: Switch(value: hideGone.value, onChanged: (v) => hideGone.value = v)),
           _row(ctx, Icons.date_range, r == null ? 'Date range…' : '${_d(r.start)} to ${_d(r.end)}', () async {
             Navigator.pop(ctx);
             await const FilterBar()._pickDate(context);
