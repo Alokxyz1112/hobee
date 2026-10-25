@@ -85,6 +85,29 @@ class Downloader {
     }
   }
 
+  /// Saves a file that's already on the phone (upscaled PNG) to Pictures/Hobee.
+  static Future<String> saveFile(String path, String name, String mime) async {
+    await _perm();
+    final r = await _ch.invokeMethod<String>('save', {'path': path, 'name': name, 'mime': mime, 'video': false});
+    return r ?? name;
+  }
+
+  /// Fetches image bytes for the upscaler: the original first, then the preview copy.
+  static Future<Uint8List> imageBytes(MediaItem m) async {
+    Object? err;
+    for (final u in {m.full, ?m.preview, m.url}) {
+      if (!u.startsWith('http')) continue;
+      try {
+        final r = await http.get(Uri.parse(u), headers: {'User-Agent': 'android:com.alok.hobee:v1.0'});
+        if (r.statusCode == 200 && r.bodyBytes.length > 2048) return r.bodyBytes;
+        err = Exception('HTTP ${r.statusCode}');
+      } catch (e) {
+        err = e;
+      }
+    }
+    throw err ?? Exception('No image to upscale');
+  }
+
   /// Highest-bandwidth video representation from v.redd.it's DASHPlaylist.mpd (fallback_url is not always the top one).
   static Future<String?> _bestDash(String fallbackUrl) async {
     final base = fallbackUrl.split('?').first.replaceAll(RegExp(r'/[^/]*$'), '');

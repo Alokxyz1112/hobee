@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.3.8-red">
+  <img alt="version" src="https://img.shields.io/badge/version-1.3.9-red">
   <img alt="platform" src="https://img.shields.io/badge/platform-Android-3DDC84">
   <img alt="flutter" src="https://img.shields.io/badge/Flutter-3.47.8-02569B">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-blue">
@@ -33,6 +33,7 @@ I'm a student and this is a hobby project. It works well for me, but read [Known
   - [Settings](#settings)
 - [Supported sources](#supported-sources)
 - [How it works](#how-it-works)
+- [Image upscaling](#image-upscaling)
 - [Known issues](#known-issues)
 - [FAQ](#faq)
 - [Roadmap](#roadmap)
@@ -51,6 +52,7 @@ I'm a student and this is a hobby project. It works well for me, but read [Known
 - Filters for All / Images / Videos / Galleries / Text, plus a "show posts between" date filter
 - Month headers and a year/month **jump** sheet for long histories
 - Four layouts: Card, Slides, Compact, Gallery
+- **Image upscaling (super resolution)** in the viewer: 2x, 3x or 4x, right on your phone, no server, no limits. Drag the divider to compare before and after, long-press to peek at the original, save as a full quality PNG. See [Image upscaling](#image-upscaling)
 - Full-screen viewer with swipe, galleries, videos and downloads (to `Pictures/Hobee` and `Movies/Hobee`)
 - Local SQLite cache, so posts you've already loaded open instantly and you can search them offline
 - Light / Dark / Auto theme
@@ -74,7 +76,7 @@ The photos are SFW nature posts from a public profile. You can see real source e
 
 ## Install
 
-1. Download `Hobee-1.3.8-arm64.apk` from the [Releases](../../releases) page. It's the build for almost every phone from the last ~6 years (arm64-v8a).
+1. Download `Hobee-1.3.9-arm64.apk` from the [Releases](../../releases) page. It's the build for almost every phone from the last ~6 years (arm64-v8a).
 2. Open it on your phone and allow "install unknown apps" for your browser or file manager.
 3. That's it. Deep Search works straight away without logging in.
 
@@ -295,8 +297,27 @@ Installed-app OAuth: Hobee opens Reddit's authorize page with your client ID, Re
 
 No ads, no analytics, no tracking, no server of mine. Everything goes straight from your phone to Reddit/the sources above. The cache and settings stay on your phone.
 
+## Image upscaling
+
+Tap the sparkle icon in the viewer on any picture (not videos). Pick 2x, 3x or 4x and a model:
+
+| Model | What it's good at | Size | Rough speed on a mid range phone |
+| --- | --- | --- | --- |
+| **Fast** (realesr-general-x4v3) | Photos and screenshots, quick results | 4.9 MB, built into the app | a few seconds for a typical Reddit preview |
+| **Ultra** (RealESRGAN_x4plus) | The most natural detail on photos | 67 MB, downloaded once | about 10x slower than Fast |
+| **Art** (RealESRGAN_x4plus_anime_6B) | Drawings, anime, memes, clean lines | 18 MB, downloaded once | about 4x slower than Fast |
+
+All three are free to use as much as you want. Everything runs on the phone with ONNX Runtime, cut into tiles so big pictures don't run out of memory. You can cancel any time.
+
+Honest notes:
+- These are all 4x models. 2x and 3x run the 4x model and then shrink the result with a good filter. That's still clearly better than a normal resize.
+- Huge pictures get shrunk a bit first so the 4x step stays under about 20 megapixels.
+- Upscaling makes things sharper, it can't bring back detail that was never there. Faces and small text can come out a bit painted.
+- The Ultra and Art files come from this repo's `models-v1` release. They're the official Real-ESRGAN weights converted to ONNX, nothing retrained. Details in [assets/models/README.md](assets/models/README.md).
+
 ## Known issues
 
+- **Ultra upscaling is slow** on big pictures, it can take a few minutes on older phones. Fast is the quick option.
 - **Reddit JSON often returns 403** and **RSS gets rate-limited (429)**. Hobee falls back to the other sources, but sometimes you only get archive results.
 - **Login needs your own client ID**, and Reddit may still want an access request before it works.
 - **Search tab needs login** for now.
@@ -322,6 +343,7 @@ No ads, no analytics, no tracking, no server of mine. Everything goes straight f
 
 ## Roadmap
 
+- Face restoration for upscaled photos (looking at GFPGAN, Apache-2.0)
 - Proper Reddit OAuth by default once my API access is approved
 - Public (no-login) sources for the Search tab
 - More testing on different phones
@@ -342,6 +364,7 @@ Some of what went wrong while building this. All of these actually happened.
 - **Grey tiles with a reload icon (1.3.6).** Deep Search was full of them. I spent an evening curling every URL the app built and found the dumb part: my "is it alive" check asked for 1 byte with a Range header, and preview.redd.it says 206 to that even for deleted images. A normal GET says 404. So dead previews got cached as working, every image load failed, and the tile sat there with a reload icon that just tried the same dead links again. 1.3.7 checks properly, retries with a short backoff, shows "Image gone" when it really is gone, and the reload button now clears the cache and checks again. On 199 archive tiles from 4 real profiles: before, 34 were stuck on the reload icon; after, 1 was (159 load, 39 are truly gone).
 - **Same picture three times.** Deep Search merges Live, Arctic Shift and PullPush, and people repost. Dupes now also match on post id and on imgur ids with the size letter stripped, and the copy that stays is the best one (Live, then Archive, then Removed, then the biggest). The month counts only count what's shown.
 - **Everything loads, then nothing does (1.3.7).** Scroll Deep Search for a while and the tiles further down just stayed blank, images and videos both. Tapping each one got some to load and some not. My fault from 1.3.7: every tile ran a full "is this alive" check before even trying its image, and only 6 checks ran at a time, first come first served. One check can try five URLs plus the Wayback Machine, so a long scroll queued hundreds of checks for tiles that were already off screen, and the ones you were actually looking at waited at the back of the line. A stalled connection could also hold a slot for ages. In 1.3.8 a tile just loads its image straight away and only asks for a check if that fails, the queue serves what's on screen first and drops tiles you scrolled past, a check gives up after 25 seconds without calling the image gone, scrolling back to a tile tries again, and the image cache is bigger so thumbnails near the screen don't get thrown out. I wrote a test that scrolls through 400 tiles with a fake slow network to make sure the bottom ones still load.
+- **Picking an upscaler.** I wanted proper upscaling in the viewer, so I tested a bunch of projects on real Reddit pictures: Real-ESRGAN (three of its models), SwinIR, plus reading up on HAT, DAT, SPAN, Real-CUGAN, waifu2x, APISR, BSRGAN, GFPGAN, CodeFormer and the diffusion ones like SUPIR and StableSR. SwinIR looked about as good as Real-ESRGAN Ultra but took twice as long, HAT and DAT are even heavier, the diffusion ones need a real GPU, CodeFormer and APISR have licenses I can't ship in an MIT app, and a lot of the popular community models are non commercial. Real-ESRGAN won: BSD licensed code and weights, great results, and a tiny model that actually runs on a phone. I also tried running a second pass on top of the first for extra detail, and it mostly made up fake texture, so I didn't ship that.
 - **Original quality.** I read through gallery-dl and bdfr to figure out the preview → i.redd.it and imgur suffix tricks.
 
 ## Contributing
@@ -359,6 +382,8 @@ Issues and PRs are welcome. Please:
 - [Redlib](https://github.com/redlib-org/redlib) and the people running public instances
 - [gallery-dl](https://github.com/mikf/gallery-dl) and [bdfr](https://github.com/aliparlakci/bulk-downloader-for-reddit), whose code taught me the original-quality tricks
 - The Internet Archive's Wayback Machine
+- [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) by Xintao Wang, Liangbin Xie, Chao Dong and Ying Shan, for the image upscaling models. BSD-3-Clause, see [assets/models/LICENSE-Real-ESRGAN.txt](assets/models/LICENSE-Real-ESRGAN.txt)
+- [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT) through [flutter_onnxruntime](https://pub.dev/packages/flutter_onnxruntime)
 - Flutter and the package authors in `pubspec.yaml`
 
 ## License

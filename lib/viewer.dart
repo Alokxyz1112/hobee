@@ -9,6 +9,7 @@ import 'download.dart';
 import 'filters.dart';
 import 'models.dart';
 import 'source_bar.dart';
+import 'upscale_ui.dart';
 
 const viewerUserAgent = 'android:com.alok.hobee:v$appVersion (personal gallery app)';
 
@@ -76,6 +77,8 @@ class _ViewerState extends State<Viewer> {
               foregroundColor: Colors.white,
               title: Text(e.post.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
               actions: [
+                if (e.item.type == MediaType.image)
+                  IconButton(icon: const Icon(Icons.auto_awesome), tooltip: 'Upscale', onPressed: () => showUpscale(context, e.item, 'hobee_${e.post.id}')),
                 IconButton(icon: const Icon(Icons.download), tooltip: 'Download', onPressed: () => _download()),
                 if (e.post.media.length > 1)
                   IconButton(icon: const Icon(Icons.download_for_offline), tooltip: 'Download all', onPressed: () => _download(all: true)),
