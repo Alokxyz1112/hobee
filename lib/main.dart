@@ -25,6 +25,10 @@ Future<void> main() async {
   await RedlibConfig.load();
   await Recents.load();
   await Auth.i.init();
+  // Long deep-search scrolls hold a lot of thumbnails; the 100 MB default kept evicting ones still near the screen.
+  PaintingBinding.instance.imageCache
+    ..maximumSizeBytes = 300 << 20
+    ..maximumSize = 2000;
   runApp(const HobeeApp());
 }
 

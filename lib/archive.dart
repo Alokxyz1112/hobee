@@ -9,7 +9,7 @@ import 'db.dart';
 import 'models.dart';
 import 'public_sources.dart';
 
-const appVersion = '1.3.7';
+const appVersion = '1.3.8';
 const _ua = 'android:com.alok.hobee:v$appVersion (personal gallery app)';
 
 /// Archive providers. Order + enabled state are user-configurable in Settings.
@@ -430,7 +430,9 @@ class Archive {
 /// Media is only reported gone on positive evidence (404/410, a known 'removed' redirect); 403/429/5xx/network errors
 /// are "unsure" and the media keeps showing.
 class MediaCheck {
-  static final Map<String, Future<String?>> _inflight = {};
+  static final Map<String, _Job> _inflight = {};
+  /// A single check never holds a slot longer than this (a slow Wayback or a stalled socket used to).
+  static Duration checkTimeout = const Duration(seconds: 25);
   // Seams for tests.
   @visibleForTesting
   static http.Client Function() client = http.Client.new;
@@ -451,43 +453,82 @@ class MediaCheck {
     if (!gone.value.contains(id)) gone.value = {...gone.value, id};
   }
 
-  // Bounded concurrency so a fast scroll doesn't fire hundreds of probes at once.
+  // Bounded concurrency so a fast scroll doesn't fire hundreds of probes at once. Waiters are served newest first
+  // (what you're looking at now) and waiters nobody wants anymore (tile scrolled away and disposed) are dropped.
   static const maxConcurrent = 6;
   static int _active = 0;
-  static final List<Completer<void>> _waiters = [];
-  static Future<T> _limit<T>(Future<T> Function() f) async {
-    while (_active >= maxConcurrent) {
-      final c = Completer<void>();
-      _waiters.add(c);
-      await c.future;
+  static final List<_Waiter> _waiters = [];
+  @visibleForTesting
+  static int get activeSlots => _active;
+  @visibleForTesting
+  static int get queued => _waiters.length;
+
+  static Future<T> _limit<T>(Future<T> Function() f, bool Function() wanted) async {
+    if (_active >= maxConcurrent) {
+      final w = _Waiter(wanted);
+      _waiters.add(w);
+      if (!await w.c.future) throw const SkippedCheck();
+    } else {
+      _active++;
     }
-    _active++;
     try {
       return await f();
     } finally {
       _active--;
-      if (_waiters.isNotEmpty) _waiters.removeAt(0).complete();
+      _next();
+    }
+  }
+
+  static void _next() {
+    while (_active < maxConcurrent && _waiters.isNotEmpty) {
+      final w = _waiters.removeLast();
+      if (w.wanted()) {
+        _active++; // hand the slot over before anyone else can grab it
+        w.c.complete(true);
+      } else {
+        w.c.complete(false);
+      }
     }
   }
 
   /// Forget a result so a tap on 'retry' really checks again.
   static Future<void> forget(Post post, MediaItem item, {bool thumb = false}) async {
-    final key = thumb ? item.thumb : item.full;
-    final k = key.isNotEmpty ? key : (item.url.isNotEmpty ? item.url : 'post:${post.id}');
+    final k = _keyOf(post, item, thumb);
     _inflight.remove('$thumb|$k');
     await writeCache(_cacheKey(k), '?');
     gone.value = {...gone.value}..remove(post.id);
   }
 
-  /// Returns a working URL, or null if the media is gone.
-  static Future<String?> resolve(Post post, MediaItem item, {bool thumb = false}) {
+  static String _keyOf(Post post, MediaItem item, bool thumb) {
     final key = thumb ? item.thumb : item.full;
     // Never share an empty key between posts (that cached one post's result for all of them).
-    final k = key.isNotEmpty ? key : (item.url.isNotEmpty ? item.url : 'post:${post.id}');
-    return _inflight.putIfAbsent('$thumb|$k', () => _limit(() => _resolve(post, item, k)).then((u) {
+    return key.isNotEmpty ? key : (item.url.isNotEmpty ? item.url : 'post:${post.id}');
+  }
+
+  /// Returns a working URL, or null if the media is gone. [wanted] says whether the caller still cares (a tile
+  /// that scrolled off returns false so its queued check is skipped). Timeouts and skips are never cached, so the
+  /// next time the tile shows up it simply checks again.
+  static Future<String?> resolve(Post post, MediaItem item, {bool thumb = false, bool Function()? wanted}) {
+    final k = _keyOf(post, item, thumb);
+    final id = '$thumb|$k';
+    final job = _inflight[id];
+    if (job != null) {
+      if (wanted != null) job.wanted.add(wanted);
+      return job.future;
+    }
+    final j = _Job();
+    if (wanted != null) j.wanted.add(wanted);
+    _inflight[id] = j;
+    j.future = _limit(() => _resolve(post, item, k).timeout(checkTimeout), j.isWanted).then((u) {
       if (u == null) markGone(post.id);
       return u;
-    }));
+    }, onError: (Object e) {
+      if (_inflight[id] == j) _inflight.remove(id);
+      // Skipped (nobody's looking), timeout or unexpected error: not proof of anything. Hand back the raw URL
+      // uncached; the next tile that shows this post checks again.
+      return k.startsWith('http') ? k : (item.thumb.isNotEmpty ? item.thumb : null);
+    });
+    return j.future;
   }
 
   // v3: <=1.3.6 probed with a 1-byte Range request, which preview.redd.it answers with 206 even for deleted
@@ -604,4 +645,21 @@ class MediaCheck {
       return null;
     }
   }
+}
+
+class SkippedCheck implements Exception {
+  const SkippedCheck();
+}
+
+class _Waiter {
+  final bool Function() wanted;
+  final c = Completer<bool>();
+  _Waiter(this.wanted);
+}
+
+class _Job {
+  late Future<String?> future;
+  final List<bool Function()> wanted = [];
+  // Checks started without a [wanted] callback (tests, viewer) are always wanted.
+  bool isWanted() => wanted.isEmpty || wanted.any((w) => w());
 }

@@ -18,26 +18,51 @@ class ArchiveImage extends StatefulWidget {
 
 class _ArchiveImageState extends State<ArchiveImage> {
   Future<String?>? _f;
+  bool _disposed = false;
   bool get _thumbMode => widget.thumb || widget.item.type != MediaType.image;
   String get _raw => _thumbMode ? widget.item.thumb : widget.item.full;
 
   @override
   void initState() {
     super.initState();
-    if (widget.deep) _f = MediaCheck.resolve(widget.post, widget.item, thumb: _thumbMode);
+    if (widget.deep && _raw.isEmpty && widget.item.thumb.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _check());
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  // Only when the URLs we already have fail do we ask MediaCheck (originals, previews, Wayback). Probing every tile
+  // up front meant hundreds of queued checks after a long scroll, and new tiles waited behind them.
+  void _check() {
+    if (_disposed || _f != null) return;
+    final f = MediaCheck.resolve(widget.post, widget.item, thumb: _thumbMode, wanted: () => !_disposed && mounted);
+    setState(() { _f = f; });
   }
 
   Future<void> _recheck() async {
     await MediaCheck.forget(widget.post, widget.item, thumb: _thumbMode);
-    if (mounted) setState(() => _f = MediaCheck.resolve(widget.post, widget.item, thumb: _thumbMode));
+    if (!mounted) return;
+    setState(() { _f = null; });
+    _check();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_f == null) return _img(_raw);
+    if (!widget.deep) return _img(_raw);
+    if (_f == null) {
+      return _raw.isEmpty && widget.item.thumb.isEmpty
+          ? _box(context, null)
+          : FallbackImage(urls: [_raw, widget.item.thumb], fit: widget.fit, cacheWidth: widget.cacheWidth, onExhausted: _check);
+    }
     return FutureBuilder<String?>(
       future: _f,
       builder: (ctx, s) {
+        if (s.hasError) return GestureDetector(onTap: _recheck, child: _box(context, const Icon(Icons.refresh)));
         if (s.connectionState != ConnectionState.done) return _box(context, null);
         return s.data == null ? GestureDetector(onTap: _recheck, child: const MediaGone()) : _img(s.data!);
       },
@@ -59,7 +84,9 @@ class FallbackImage extends StatefulWidget {
   final BoxFit fit;
   final int? cacheWidth;
   final VoidCallback? onAllGone;
-  const FallbackImage({super.key, required this.urls, this.fit = BoxFit.cover, this.cacheWidth, this.onAllGone});
+  /// If set, called once every URL has failed (for any reason) instead of showing the retry / gone state.
+  final VoidCallback? onExhausted;
+  const FallbackImage({super.key, required this.urls, this.fit = BoxFit.cover, this.cacheWidth, this.onAllGone, this.onExhausted});
   @override
   State<FallbackImage> createState() => _FallbackImageState();
 }
@@ -81,7 +108,9 @@ class _FallbackImageState extends State<FallbackImage> {
 
   void _again() {
     for (final u in _urls) {
-      PaintingBinding.instance.imageCache.evict(NetworkImage(u, headers: imageHeaders));
+      final n = NetworkImage(u, headers: imageHeaders);
+      PaintingBinding.instance.imageCache.evict(n);
+      PaintingBinding.instance.imageCache.evict(ResizeImage.resizeIfNeeded(widget.cacheWidth, null, n));
     }
     setState(() { _i = 0; _retry++; _soft = false; });
   }
@@ -92,6 +121,10 @@ class _FallbackImageState extends State<FallbackImage> {
     final code = err is NetworkImageLoadException ? err.statusCode : 0;
     if (code != 404 && code != 410) _soft = true;
     _i++;
+    if (_i >= _urls.length && widget.onExhausted != null) {
+      widget.onExhausted!();
+      return;
+    }
     if (_i >= _urls.length) {
       if (_soft && _retry < _autoRetries) {
         Future.delayed(Duration(seconds: 2 << _retry), () { if (mounted && _i >= _urls.length) _again(); });

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.3.7-red">
+  <img alt="version" src="https://img.shields.io/badge/version-1.3.8-red">
   <img alt="platform" src="https://img.shields.io/badge/platform-Android-3DDC84">
   <img alt="flutter" src="https://img.shields.io/badge/Flutter-3.47.8-02569B">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-blue">
@@ -74,7 +74,7 @@ The photos are SFW nature posts from a public profile. You can see real source e
 
 ## Install
 
-1. Download `Hobee-1.3.7-arm64.apk` from the [Releases](../../releases) page. It's the build for almost every phone from the last ~6 years (arm64-v8a).
+1. Download `Hobee-1.3.8-arm64.apk` from the [Releases](../../releases) page. It's the build for almost every phone from the last ~6 years (arm64-v8a).
 2. Open it on your phone and allow "install unknown apps" for your browser or file manager.
 3. That's it. Deep Search works straight away without logging in.
 
@@ -303,6 +303,7 @@ No ads, no analytics, no tracking, no server of mine. Everything goes straight f
 - **Arctic Shift author search misses posts whose author was later set to `[deleted]`.** The `u_NAME` search catches some of them, but not all.
 - **Redlib instances go down.** If all of them fail, switch the preferred instance in Settings.
 - **Some archived pictures are just gone.** If the poster deleted the image, Reddit deletes the original, every preview size and the thumbnail. Arctic Shift and PullPush only keep the post text and links, not the files, so unless the Wayback Machine happened to save it there's nothing left to show. In my test run that was about 1 in 5 archive images. Those now show "Image gone" instead of a reload icon.
+- **Tiles stopped loading after a long scroll (1.3.7).** Fixed in 1.3.8. If a tile still stays blank, scroll away and back; it checks again on its own now. Tapping a grey tile also rechecks it.
 - **Viewer black screen (1.3.5)**: some phones showed a black screen with only a retry icon. 1.3.6 reworks the fallback chain, decodes at screen size, sends a proper User-Agent and makes retry actually re-download. If it still happens to you, long-press the screen and open an issue with the URL/status it shows.
 
 ## FAQ
@@ -340,6 +341,7 @@ Some of what went wrong while building this. All of these actually happened.
 - **The bottom nav pill.** I fought with this layout for way too long: labels overflowing, a pill that wasn't centred, the highlight being the wrong size. In 1.3.6 it's icons only, with tooltips.
 - **Grey tiles with a reload icon (1.3.6).** Deep Search was full of them. I spent an evening curling every URL the app built and found the dumb part: my "is it alive" check asked for 1 byte with a Range header, and preview.redd.it says 206 to that even for deleted images. A normal GET says 404. So dead previews got cached as working, every image load failed, and the tile sat there with a reload icon that just tried the same dead links again. 1.3.7 checks properly, retries with a short backoff, shows "Image gone" when it really is gone, and the reload button now clears the cache and checks again. On 199 archive tiles from 4 real profiles: before, 34 were stuck on the reload icon; after, 1 was (159 load, 39 are truly gone).
 - **Same picture three times.** Deep Search merges Live, Arctic Shift and PullPush, and people repost. Dupes now also match on post id and on imgur ids with the size letter stripped, and the copy that stays is the best one (Live, then Archive, then Removed, then the biggest). The month counts only count what's shown.
+- **Everything loads, then nothing does (1.3.7).** Scroll Deep Search for a while and the tiles further down just stayed blank, images and videos both. Tapping each one got some to load and some not. My fault from 1.3.7: every tile ran a full "is this alive" check before even trying its image, and only 6 checks ran at a time, first come first served. One check can try five URLs plus the Wayback Machine, so a long scroll queued hundreds of checks for tiles that were already off screen, and the ones you were actually looking at waited at the back of the line. A stalled connection could also hold a slot for ages. In 1.3.8 a tile just loads its image straight away and only asks for a check if that fails, the queue serves what's on screen first and drops tiles you scrolled past, a check gives up after 25 seconds without calling the image gone, scrolling back to a tile tries again, and the image cache is bigger so thumbnails near the screen don't get thrown out. I wrote a test that scrolls through 400 tiles with a fake slow network to make sure the bottom ones still load.
 - **Original quality.** I read through gallery-dl and bdfr to figure out the preview → i.redd.it and imgur suffix tricks.
 
 ## Contributing
