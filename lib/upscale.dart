@@ -1,35 +1,55 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
+import 'upscale_post.dart';
+export 'upscale_post.dart' show PostOptions;
 
-/// Image upscaling (super resolution) with Real-ESRGAN models, fully on the phone.
+/// Image upscaling (super resolution), fully on the phone.
 ///
-/// Every model here is a native 4x model. 2x and 3x are made by running the 4x model and then shrinking the
-/// result with a high quality filter. That still looks better than a plain resize, but it's not a separate 2x net.
+/// Every model is a 4x model. 2x and 3x run the 4x model and shrink the result with a good filter, which looks
+/// sharper and cleaner than a separate small 2x net did in our tests.
 ///
-/// Real-ESRGAN by Xintao Wang et al., BSD-3-Clause, https://github.com/xinntao/Real-ESRGAN
-/// The ONNX files are straight conversions of the official .pth weights (same numbers, see README).
+/// Fast and Ultra: models by Philip Hofmann (Phhofm), CC BY 4.0, https://github.com/Phhofm/models
+/// Art: Real-ESRGAN anime 6B by Xintao Wang et al., BSD-3-Clause, https://github.com/xinntao/Real-ESRGAN
+/// The ONNX files are straight conversions of the official .pth weights (same numbers, see assets/models/README.md).
 enum UpModel {
-  fast('Fast', 'realesr-general-x4v3', 'Small and quick. Good on photos and screenshots.', null, 0, ''),
-  ultra('Ultra', 'RealESRGAN_x4plus', 'Best detail on photos. Big download, slow.', 'RealESRGAN_x4plus.onnx', 67051616,
-      'aeda30ebfe7519d087071902b8198bbdfc08a5ba8457969fc8c453c3010bc57c'),
+  fast('Fast', '4xLSDIRCompactC', 'Quick and clean. Good on photos, handles JPEG blocks.', null, 0, '', 2.0, 256),
+  ultra('Ultra', '4xNomosWebPhoto_RealPLKSR', 'Most detail with real looking skin, hair and texture.',
+      '4xNomosWebPhoto_RealPLKSR.onnx', 29902622, '550ec2c879439e707717f6c8250b82908d19fa3ab4f75f26c1713f685c8ef371', 26.0, 192),
   art('Art', 'RealESRGAN_x4plus_anime_6B', 'Drawings, anime and memes. Clean lines.', 'RealESRGAN_x4plus_anime_6B.onnx',
-      17939941, 'd0c0ba25911cdc60151a1bdb33b4cc3d7beb86317b6d1540a290d78e0a0d8255');
+      17939941, 'd0c0ba25911cdc60151a1bdb33b4cc3d7beb86317b6d1540a290d78e0a0d8255', 15.0, 192);
 
   final String label, name, hint;
   final String? file; // null = bundled in the APK
   final int approxBytes;
   final String sha;
-  const UpModel(this.label, this.name, this.hint, this.file, this.approxBytes, this.sha);
+
+  /// Rough seconds per input megapixel on a mid range phone CPU (estimate, refined after each real run).
+  final double secPerMp;
+
+  /// Largest tile edge in input pixels. Bigger tiles mean fewer seams and less overhead, but more memory.
+  final int tile;
+  const UpModel(this.label, this.name, this.hint, this.file, this.approxBytes, this.sha, this.secPerMp, this.tile);
   bool get bundled => file == null;
 }
 
-const modelBase = 'https://github.com/Alokxyz1112/hobee/releases/download/models-v1/';
+const modelBase = 'https://github.com/Alokxyz1112/hobee/releases/download/models-v2/';
+
+/// Measured speed from earlier runs this session (seconds per input megapixel), by model.
+final Map<UpModel, double> measuredSecPerMp = {};
+
+/// Expected seconds for upscaling a w*h image with [m]. Scale does not matter: 2x and 3x run the 4x model too.
+double estimateSeconds(UpModel m, int w, int h) => 1.5 + (measuredSecPerMp[m] ?? m.secPerMp) * w * h / 1e6;
+
+/// "About 20 s" style text.
+String estimateText(double s) => s < 60 ? 'About ${math.max(5, (s / 5).round() * 5)} s' : 'About ${(s / 60).toStringAsFixed(s < 600 ? 1 : 0)} min';
 
 /// Core rectangle of the input that one tile is responsible for.
 class Tile {
@@ -187,14 +207,14 @@ class Upscaler {
     if (s != null) return s;
     // XNNPACK is the fast ARM CPU path; plain CPU is the fallback. NNAPI is skipped on purpose: these nets use ops it
     // handles badly and it was slower than XNNPACK in ONNX Runtime's own numbers for conv heavy models.
-    final opts = OrtSessionOptions(providers: [OrtProvider.XNNPACK, OrtProvider.CPU], intraOpNumThreads: 4);
+    final opts = OrtSessionOptions(providers: [OrtProvider.XNNPACK, OrtProvider.CPU], intraOpNumThreads: math.min(8, Platform.numberOfProcessors));
     OrtSession ses;
     try {
       ses = m.bundled
           ? await _ort.createSessionFromAsset('assets/models/${m.name}.onnx', options: opts)
           : await _ort.createSession((await _file(m)).path, options: opts);
     } catch (_) {
-      final cpu = OrtSessionOptions(providers: [OrtProvider.CPU], intraOpNumThreads: 4);
+      final cpu = OrtSessionOptions(providers: [OrtProvider.CPU], intraOpNumThreads: math.min(8, Platform.numberOfProcessors));
       ses = m.bundled
           ? await _ort.createSessionFromAsset('assets/models/${m.name}.onnx', options: cpu)
           : await _ort.createSession((await _file(m)).path, options: cpu);
@@ -202,39 +222,131 @@ class Upscaler {
     return _sessions[m] = ses;
   }
 
+  static const _ch = MethodChannel('hobee/upscale');
+  static void Function(int, int, String)? _onProgress;
+  static bool _hooked = false;
+
+  /// Backend used by the last native run ("nnapi", "xnnpack" or "cpu"), for the result screen.
+  static String? lastBackend;
+
+  /// Path of the model on disk. The bundled one is copied out of the APK once, since native code needs a file.
+  static Future<String> _modelPath(UpModel m) async {
+    if (!m.bundled) return (await _file(m)).path;
+    final f = File('${(await getApplicationSupportDirectory()).path}/models/${m.name}.onnx');
+    if (!await f.exists()) {
+      await f.parent.create(recursive: true);
+      final data = await rootBundle.load('assets/models/${m.name}.onnx');
+      await f.writeAsBytes(data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes), flush: true);
+    }
+    return f.path;
+  }
+
+  /// Runs the model over the whole RGB image in native code (NNAPI fp16, then XNNPACK, then CPU).
+  static Future<Uint8List> _native(DecodedImage d, UpModel m, void Function(double)? progress, bool Function()? cancelled) async {
+    if (!_hooked) {
+      _hooked = true;
+      _ch.setMethodCallHandler((c) async {
+        if (c.method == 'progress') {
+          final a = c.arguments as Map;
+          _onProgress?.call(a['done'] as int, a['total'] as int, a['backend'] as String);
+        }
+      });
+    }
+    final dir = (await getTemporaryDirectory()).path;
+    final id = DateTime.now().microsecondsSinceEpoch;
+    final inF = File('$dir/up_in_$id.rgb'), outF = File('$dir/up_out_$id.rgb');
+    await inF.writeAsBytes(d.rgb);
+    _onProgress = (a, b, be) => progress?.call(a / b);
+    final watch = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      if (cancelled?.call() ?? false) _ch.invokeMethod('cancel');
+    });
+    final sw = Stopwatch()..start();
+    try {
+      final r = await _ch.invokeMapMethod<String, Object?>('run', {
+        'model': await _modelPath(m),
+        'input': inF.path,
+        'output': outF.path,
+        'w': d.w,
+        'h': d.h,
+        'scale': 4,
+        'tile': m.tile,
+        'pad': 16,
+        'backends': ['nnapi', 'xnnpack', 'cpu'],
+      });
+      lastBackend = r?['backend'] as String?;
+      measuredSecPerMp[m] = sw.elapsedMilliseconds / 1000 / (d.w * d.h / 1e6);
+      return await outF.readAsBytes();
+    } on PlatformException catch (e) {
+      if (e.code == 'CANCELLED') throw const UpscaleCancelled();
+      rethrow;
+    } finally {
+      watch.cancel();
+      _onProgress = null;
+      for (final f in [inF, outF]) {
+        if (await f.exists()) await f.delete();
+      }
+    }
+  }
+
   /// Upscales encoded image bytes by [scale] (2, 3 or 4) and returns a PNG.
   static Future<UpscaleResult> run(Uint8List bytes, int scale, UpModel m,
-      {void Function(double)? progress, bool Function()? cancelled}) async {
-    final ses = await _session(m);
-    return upscalePipeline(bytes, scale, (x, s) async {
-      final input = await OrtValue.fromList(x, [1, 3, s, s]);
-      try {
-        final out = await ses.run({'input': input});
-        final v = out['output']!;
-        final list = (await v.asFlattenedList()).cast<num>();
-        await v.dispose();
-        return list;
-      } finally {
-        await input.dispose();
-      }
-    }, tile: m == UpModel.ultra ? 96 : 128, progress: progress, cancelled: cancelled, label: m.name);
+      {PostOptions post = const PostOptions(), void Function(double)? progress, bool Function()? cancelled}) async {
+    if (scale < 2 || scale > 4) throw ArgumentError.value(scale, 'scale');
+    final opt = post.forSource(jpegQuality(bytes));
+    final d = await compute(decodeForUpscale, (bytes, scale));
+    Uint8List rgb4;
+    try {
+      rgb4 = await _native(d, m, progress, cancelled);
+    } catch (e) {
+      // Not on Android (tests, desktop), or the native engine failed on this
+      // phone: the plugin path, slower but same result.
+      if (e is! MissingPluginException && e is! PlatformException) rethrow;
+      final ses = await _session(m);
+      rgb4 = await upscaleRgb(d.rgb, d.w, d.h, (x, s) => _runPlugin(ses, x, s),
+          size: 128, pad: 16, progress: (a, b) => progress?.call(a / b), cancelled: cancelled);
+    }
+    return finishPipeline(d, rgb4, scale, opt, m.name);
+  }
+
+  static Future<List<num>> _runPlugin(OrtSession ses, Float32List x, int s) async {
+    final input = await OrtValue.fromList(x, [1, 3, s, s]);
+    try {
+      final out = await ses.run({'input': input});
+      final v = out['output']!;
+      final list = (await v.asFlattenedList()).cast<num>();
+      await v.dispose();
+      return list;
+    } finally {
+      await input.dispose();
+    }
   }
 }
 
-/// The whole upscale: decode in a background isolate, run [model] tile by tile here (the ONNX plugin is already
-/// async and native, and plugins need the main isolate), then resize and encode in a background isolate.
+/// Isolate entry (top level, plain data only): raw 4x RGB -> color, natural and grain fixes -> target size -> PNG.
+Uint8List finishWithPost((Uint8List, int, int, Uint8List, int, int, PostOptions) a) {
+  final (rgb4, w, h, src, tw, th, opt) = a;
+  final fixed = postProcessBands(rgb4, w * 4, h * 4, src, w, h, 4, opt);
+  return finishUpscale((fixed, w * 4, h * 4, tw, th));
+}
+
+Future<UpscaleResult> finishPipeline(DecodedImage d, Uint8List rgb4, int scale, PostOptions opt, String label) async {
+  final tw = d.w * scale, th = d.h * scale;
+  final png = await compute(finishWithPost, (rgb4, d.w, d.h, d.rgb, tw, th, opt));
+  if (kDebugMode) debugPrint('upscale ${d.w}x${d.h} -> ${tw}x$th with $label');
+  return UpscaleResult(png, tw, th, d.ow, d.oh, d.w != d.ow);
+}
+
+/// The whole upscale with a Dart side [model] (used by tests and the non Android fallback): decode in a background
+/// isolate, run [model] tile by tile here, then fix up, resize and encode in a background isolate.
 ///
 /// The background work goes through [compute] with top level functions and plain records only. An earlier version
 /// used `Isolate.run(() => ...)` closures, which dragged the caller's progress callback (and with it the widget
 /// tree) along and crashed with "object is unsendable".
 Future<UpscaleResult> upscalePipeline(Uint8List bytes, int scale, Future<List<num>> Function(Float32List, int s) model,
-    {int tile = 128, void Function(double)? progress, bool Function()? cancelled, String label = ''}) async {
+    {int tile = 128, PostOptions post = const PostOptions(), void Function(double)? progress, bool Function()? cancelled, String label = ''}) async {
   if (scale < 2 || scale > 4) throw ArgumentError.value(scale, 'scale');
   final d = await compute(decodeForUpscale, (bytes, scale));
   final rgb4 = await upscaleRgb(d.rgb, d.w, d.h, model,
       size: tile, pad: 16, progress: (a, b) => progress?.call(a / b), cancelled: cancelled);
-  final tw = d.w * scale, th = d.h * scale;
-  final png = await compute(finishUpscale, (rgb4, d.w * 4, d.h * 4, tw, th));
-  if (kDebugMode) debugPrint('upscale ${d.w}x${d.h} -> ${tw}x$th with $label');
-  return UpscaleResult(png, tw, th, d.ow, d.oh, d.w != d.ow);
+  return finishPipeline(d, rgb4, scale, post.forSource(jpegQuality(bytes)), label);
 }

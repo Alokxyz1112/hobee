@@ -9,13 +9,14 @@ import 'upscale.dart';
 
 /// Opens the upscale picker for one image, then the result screen. Unlimited and free, nothing is locked.
 Future<void> showUpscale(BuildContext context, MediaItem item, String baseName) async {
-  final pick = await showModalBottomSheet<(int, UpModel)>(
+  final pick = await showModalBottomSheet<(int, UpModel, PostOptions)>(
     context: context,
     backgroundColor: Colors.transparent,
+    isScrollControlled: true,
     builder: (_) => const _Picker(),
   );
   if (pick == null || !context.mounted) return;
-  await Navigator.of(context).push(MaterialPageRoute(builder: (_) => UpscaleScreen(item: item, scale: pick.$1, model: pick.$2, baseName: baseName)));
+  await Navigator.of(context).push(MaterialPageRoute(builder: (_) => UpscaleScreen(item: item, scale: pick.$1, model: pick.$2, post: pick.$3, baseName: baseName)));
 }
 
 class _Picker extends StatefulWidget {
@@ -27,6 +28,7 @@ class _Picker extends StatefulWidget {
 class _PickerState extends State<_Picker> {
   int scale = 2;
   UpModel model = UpModel.fast;
+  bool natural = true, grain = false, color = false;
   final Map<UpModel, bool> _ready = {};
 
   @override
@@ -48,7 +50,7 @@ class _PickerState extends State<_Picker> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               const Icon(Icons.auto_awesome, color: Colors.white),
               const SizedBox(width: 8),
@@ -70,32 +72,59 @@ class _PickerState extends State<_Picker> {
                 onTap: () => setState(() => model = m),
                 leading: Icon(model == m ? Icons.radio_button_checked : Icons.radio_button_off, color: Colors.white),
                 title: Text(m.label, style: white),
+                trailing: Text('${estimateText(estimateSeconds(m, 1000, 1000))} / MP', style: const TextStyle(color: Colors.white54, fontSize: 11)),
                 subtitle: Text(
                     '${m.hint}${m.bundled ? '' : (_ready[m] ?? false) ? ' Downloaded.' : ' Downloads ${(m.approxBytes / 1e6).round()} MB once.'}',
                     style: const TextStyle(color: Colors.white70, fontSize: 12)),
               ),
             const SizedBox(height: 4),
+            Row(children: [
+              const Text('Look', style: white),
+              const Spacer(),
+              SegmentedButton<bool>(
+                showSelectedIcon: false,
+                style: SegmentedButton.styleFrom(foregroundColor: Colors.white, selectedForegroundColor: Colors.black, selectedBackgroundColor: Colors.white, visualDensity: VisualDensity.compact),
+                segments: const [ButtonSegment(value: true, label: Text('Natural')), ButtonSegment(value: false, label: Text('Sharp'))],
+                selected: {natural},
+                onSelectionChanged: (s) => setState(() => natural = s.first),
+              ),
+            ]),
+            _switch('Restore color', 'Gentle boost for faded colors. Skin is left alone.', color, (v) => setState(() => color = v)),
+            _switch('Film grain', 'Adds back a little grain matched to the photo.', grain, (v) => setState(() => grain = v)),
+            const Text('Colors and skin tones are kept true to the original. Blocky JPEGs get extra cleanup on their own.',
+                style: TextStyle(color: Colors.white54, fontSize: 11)),
+            const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
                 icon: const Icon(Icons.auto_awesome),
                 label: Text('Upscale ${scale}x'),
-                onPressed: () => Navigator.pop(context, (scale, model)),
+                onPressed: () => Navigator.pop(context, (scale, model, PostOptions(natural: natural ? 0.25 : 0, grain: grain, vibrance: color ? 0.12 : 0))),
               ),
             ),
-          ]),
+          ])),
         ),
       ),
     );
   }
 }
 
+Widget _switch(String t, String sub, bool v, ValueChanged<bool> on) => SwitchListTile(
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      value: v,
+      onChanged: on,
+      title: Text(t, style: const TextStyle(color: Colors.white)),
+      subtitle: Text(sub, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+    );
+
 class UpscaleScreen extends StatefulWidget {
   final MediaItem item;
   final int scale;
   final UpModel model;
+  final PostOptions post;
   final String baseName;
-  const UpscaleScreen({super.key, required this.item, required this.scale, required this.model, required this.baseName});
+  const UpscaleScreen({super.key, required this.item, required this.scale, required this.model, this.post = const PostOptions(), required this.baseName});
   @override
   State<UpscaleScreen> createState() => _UpscaleScreenState();
 }
@@ -109,6 +138,14 @@ class _UpscaleScreenState extends State<UpscaleScreen> {
   UpscaleResult? result;
   double split = 0.5;
   bool saving = false;
+  final _clock = Stopwatch();
+
+  String get _eta {
+    final p = progress;
+    if (p == null || p <= 0.02 || !_clock.isRunning) return '';
+    final left = _clock.elapsedMilliseconds / 1000 / p * (1 - p);
+    return left < 5 ? '  almost done' : '  ${estimateText(left).replaceFirst('About', 'about')} left';
+  }
 
   @override
   void initState() {
@@ -133,8 +170,10 @@ class _UpscaleScreenState extends State<UpscaleScreen> {
       before ??= await Downloader.imageBytes(widget.item);
       if (!mounted) return;
       setState(() { stage = 'Upscaling ${widget.scale}x with ${m.label}'; progress = 0; });
-      final r = await Upscaler.run(before!, widget.scale, m,
+      _clock..reset()..start();
+      final r = await Upscaler.run(before!, widget.scale, m, post: widget.post,
           progress: (p) { if (mounted) setState(() => progress = p); }, cancelled: () => cancelled);
+      _clock.stop();
       if (mounted) setState(() => result = r);
     } on UpscaleCancelled {
       if (mounted) Navigator.pop(context);
@@ -192,7 +231,7 @@ class _UpscaleScreenState extends State<UpscaleScreen> {
               ? _center([
                   SizedBox(width: 220, child: LinearProgressIndicator(value: progress)),
                   const SizedBox(height: 12),
-                  Text(progress == null ? stage : '$stage  ${(progress! * 100).round()}%', style: const TextStyle(color: Colors.white70)),
+                  Text(progress == null ? stage : progress! >= 1 ? 'Finishing up' : '$stage  ${(progress! * 100).round()}%$_eta', style: const TextStyle(color: Colors.white70)),
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(foregroundColor: Colors.white),

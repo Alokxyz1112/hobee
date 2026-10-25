@@ -304,23 +304,44 @@ No ads, no analytics, no tracking, no server of mine. Everything goes straight f
 
 Tap the sparkle icon in the viewer on any picture (not videos). Pick 2x, 3x or 4x and a model:
 
-| Model | What it's good at | Size | Rough speed on a mid range phone |
-| --- | --- | --- | --- |
-| **Fast** (realesr-general-x4v3) | Photos and screenshots, quick results | 4.9 MB, built into the app | a few seconds for a typical Reddit preview |
-| **Ultra** (RealESRGAN_x4plus) | The most natural detail on photos | 67 MB, downloaded once | about 10x slower than Fast |
-| **Art** (RealESRGAN_x4plus_anime_6B) | Drawings, anime, memes, clean lines | 18 MB, downloaded once | about 4x slower than Fast |
+| Model | What it's good at | Size | License | Rough speed on a mid range phone (estimate) |
+| --- | --- | --- | --- | --- |
+| **Fast** ([4xLSDIRCompactC](https://github.com/Phhofm/models) by Philip Hofmann) | Photos, screenshots, compressed Reddit JPEGs | 2.5 MB, built into the app | CC-BY-4.0 | about 2 s per megapixel |
+| **Ultra** ([4xNomosWebPhoto_RealPLKSR](https://github.com/Phhofm/models) by Philip Hofmann) | The most natural detail on photos and people | 30 MB, downloaded once | CC-BY-4.0 | about 25 s per megapixel |
+| **Art** (RealESRGAN_x4plus_anime_6B) | Drawings, anime, memes, clean lines | 18 MB, downloaded once | BSD-3-Clause | about 15 s per megapixel |
 
-All three are free to use as much as you want. Everything runs on the phone with ONNX Runtime, cut into tiles so big pictures don't run out of memory. You can cancel any time.
+The picker shows a time estimate for the picture you're on, and after your first run it uses your phone's real speed.
+
+Options in the picker:
+- **Look: Natural or Sharp.** Natural softly blends back a bit of the original so skin and walls don't get that plastic look. Sharp keeps everything the model made.
+- **Restore color.** Gives faded pictures a gentle color lift. Skin tones are protected so nobody turns orange.
+- **Film grain.** Adds back a light grain matched to the source, so the result looks like a photo and not a render.
+- **JPEG cleanup is automatic.** Hobee reads how hard the JPEG was compressed and smooths blocky color more on bad ones.
+
+All of it is free to use as much as you want. Everything runs on the phone with ONNX Runtime. It tries the phone's NPU or GPU first (NNAPI, fp16), then XNNPACK, then plain CPU, and moves on by itself if one fails. Big pictures are cut into tiles so they don't run out of memory. You can cancel any time.
+
+Before and after, on 16 Reddit crops (8 of them people, mostly brown and darker Indian skin), measured on my desktop CPU:
+
+| | Old Fast | New Fast | Old Ultra | New Ultra |
+| --- | --- | --- | --- | --- |
+| Time per 192 px crop | 0.08 s | 0.04 s | 1.61 s | 1.02 s |
+| Color shift (dE, lower is better) | 1.96 | 0.27 | 2.70 | 0.30 |
+| Skin lightness shift (L) | -0.49 | -0.06 | -1.13 | -0.17 |
+| MUSIQ (higher is better) | 55.4 | 54.2 | 63.9 | 61.4 |
+| NIQE (lower is better) | 6.44 | 4.66 | 4.51 | 4.73 |
+
+Every model now keeps colors anchored to the original, so skin doesn't get lighter, redder or orange. MUSIQ drops a little with the Natural look on, because it rewards extra crunchy detail. Switch to Sharp if you want that.
 
 Honest notes:
-- These are all 4x models. 2x and 3x run the 4x model and then shrink the result with a good filter. That's still clearly better than a normal resize.
+- These are all 4x models. 2x and 3x run the 4x model and then shrink the result with a good filter. In my tests that beat the real 2x models.
 - Huge pictures get shrunk a bit first so the 4x step stays under about 20 megapixels.
-- Upscaling makes things sharper, it can't bring back detail that was never there. Faces and small text can come out a bit painted.
-- The Ultra and Art files come from this repo's `models-v1` release. They're the official Real-ESRGAN weights converted to ONNX, nothing retrained. Details in [assets/models/README.md](assets/models/README.md).
+- Upscaling makes things sharper, it can't bring back detail that was never there. Tiny faces in group shots stay soft. There's no face restore, because the good ones (GFPGAN, CodeFormer) change how people look and have licenses I can't ship.
+- I also tried FBCNN, SCUNet and 1xDeJPG as a JPEG cleanup step before upscaling. They only helped a tiny bit over the Fast model (which already learned JPEG) and are 70 to 290 MB, so they're not in.
+- The Ultra and Art files come from this repo's `models-v2` release, converted to ONNX, nothing retrained. Details in [assets/models/README.md](assets/models/README.md).
 
 ## Known issues
 
-- **Ultra upscaling is slow** on big pictures, it can take a few minutes on older phones. Fast is the quick option.
+- **Ultra upscaling is slow** on big pictures, it can take a minute or two on older phones. Fast is the quick option.
 - **Reddit JSON often returns 403** and **RSS gets rate-limited (429)**. Hobee falls back to the other sources, but sometimes you only get archive results.
 - **Login needs your own client ID**, and Reddit may still want an access request before it works.
 - **Search tab needs login** for now.
@@ -372,6 +393,7 @@ Some of what went wrong while building this. All of these actually happened.
 
 ## Changelog
 
+- **1.3.11**: Upscaler overhaul. New Fast and Ultra models that are faster and keep colors and skin tones true, runs on the phone's NPU or GPU when it can, a time estimate in the picker, Natural or Sharp look, Restore color and Film grain options, and automatic cleanup for heavily compressed JPEGs.
 - **1.3.10**: Clean downloads. Single, gallery and upscaled saves drop EXIF (including GPS and software tags), XMP, IPTC and comments from JPEG, PNG, WebP and GIF. Only the ICC color profile is kept. No camera or device info is ever written. Files are named by save time (for example `20261025_233900.jpg`) and go to plain `Pictures` and `Movies` folders. Toggle in Settings, on by default. Videos are not changed. Also fixes the upscaler crash from 1.3.9 ("object is unsendable" red screen when tapping Upscale): the background work now only gets plain image data, and errors show a short message with a Retry button.
 - **1.3.9**: On-device image upscaling with Real-ESRGAN.
 
@@ -390,7 +412,9 @@ Issues and PRs are welcome. Please:
 - [Redlib](https://github.com/redlib-org/redlib) and the people running public instances
 - [gallery-dl](https://github.com/mikf/gallery-dl) and [bdfr](https://github.com/aliparlakci/bulk-downloader-for-reddit), whose code taught me the original-quality tricks
 - The Internet Archive's Wayback Machine
-- [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) by Xintao Wang, Liangbin Xie, Chao Dong and Ying Shan, for the image upscaling models. BSD-3-Clause, see [assets/models/LICENSE-Real-ESRGAN.txt](assets/models/LICENSE-Real-ESRGAN.txt)
+- [Philip Hofmann's models](https://github.com/Phhofm/models), 4xLSDIRCompactC and 4xNomosWebPhoto_RealPLKSR, for the Fast and Ultra upscalers. CC-BY-4.0, see [assets/models/ATTRIBUTION.md](assets/models/ATTRIBUTION.md)
+- [ONNX Runtime](https://github.com/microsoft/onnxruntime) by Microsoft, MIT
+- [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) by Xintao Wang, Liangbin Xie, Chao Dong and Ying Shan, for the Art upscaling model. BSD-3-Clause, see [assets/models/LICENSE-Real-ESRGAN.txt](assets/models/LICENSE-Real-ESRGAN.txt)
 - [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT) through [flutter_onnxruntime](https://pub.dev/packages/flutter_onnxruntime)
 - Flutter and the package authors in `pubspec.yaml`
 
