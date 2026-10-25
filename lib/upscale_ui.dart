@@ -150,8 +150,8 @@ class _UpscaleScreenState extends State<UpscaleScreen> {
     try {
       final f = File('${(await getTemporaryDirectory()).path}/up_${DateTime.now().millisecondsSinceEpoch}.png');
       await f.writeAsBytes(r.png);
-      await Downloader.saveFile(f.path, '${widget.baseName}_${widget.scale}x_${DateTime.now().millisecondsSinceEpoch}.png', 'image/png');
-      m.showSnackBar(SnackBar(content: Text('Saved ${r.w}x${r.h} PNG to Hobee folder')));
+      await Downloader.saveFile(f.path, 'png', 'image/png');
+      m.showSnackBar(SnackBar(content: Text('Saved ${r.w}x${r.h} PNG to Pictures')));
     } catch (e) {
       m.showSnackBar(SnackBar(content: Text('Save failed: $e')));
     } finally {

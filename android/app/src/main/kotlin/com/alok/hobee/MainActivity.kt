@@ -71,16 +71,36 @@ class MainActivity : FlutterActivity() {
         muxer.stop(); muxer.release(); ve.release(); ae.release()
     }
 
-    /** Save into Pictures/Hobee or Movies/Hobee via MediaStore (API 29+) or legacy public dir. */
-    private fun save(path: String, name: String, mime: String, video: Boolean): String {
+    /** True if a file with this name already exists in Pictures/ or Movies/. */
+    private fun taken(coll: android.net.Uri, dir: String, name: String): Boolean {
+        contentResolver.query(coll, arrayOf(MediaStore.MediaColumns._ID),
+            "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?",
+            arrayOf(name, "$dir/"), null)?.use { return it.count > 0 }
+        return false
+    }
+
+    /** Adds _1, _2, ... before the extension until the name is free. */
+    private fun freeName(base: String, exists: (String) -> Boolean): String {
+        if (!exists(base)) return base
+        val dot = base.lastIndexOf('.')
+        val stem = if (dot > 0) base.substring(0, dot) else base
+        val ext = if (dot > 0) base.substring(dot) else ""
+        var n = 1
+        while (exists("${stem}_$n$ext")) n++
+        return "${stem}_$n$ext"
+    }
+
+    /** Save into plain Pictures/ or Movies/ via MediaStore (API 29+) or legacy public dir. No title or description is set. */
+    private fun save(path: String, base: String, mime: String, video: Boolean): String {
         val dir = if (video) Environment.DIRECTORY_MOVIES else Environment.DIRECTORY_PICTURES
         if (Build.VERSION.SDK_INT >= 29) {
             val coll = if (video) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
                        else MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val name = freeName(base) { taken(coll, dir, it) }
             val v = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, name)
                 put(MediaStore.MediaColumns.MIME_TYPE, mime)
-                put(MediaStore.MediaColumns.RELATIVE_PATH, "$dir/Hobee")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "$dir/")
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
             val uri = contentResolver.insert(coll, v) ?: throw Exception("MediaStore insert failed")
@@ -90,8 +110,8 @@ class MainActivity : FlutterActivity() {
             return uri.toString()
         } else {
             @Suppress("DEPRECATION")
-            val d = File(Environment.getExternalStoragePublicDirectory(dir), "Hobee").apply { mkdirs() }
-            val f = File(d, name)
+            val d = Environment.getExternalStoragePublicDirectory(dir).apply { mkdirs() }
+            val f = File(d, freeName(base) { File(d, it).exists() })
             File(path).copyTo(f, overwrite = true)
             MediaScannerConnection.scanFile(this, arrayOf(f.absolutePath), arrayOf(mime), null)
             return f.absolutePath

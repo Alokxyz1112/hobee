@@ -1,3 +1,4 @@
+import 'clean.dart';
 import 'package:flutter/material.dart';
 import 'glass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -56,6 +57,8 @@ Future<void> loadFilterPrefs() async {
   subSort.value = sp.getString('subSort') ?? 'new';
   hideRead.value = sp.getBool('hideRead') ?? false;
   originalQuality.value = sp.getBool('originalQuality') ?? true;
+  cleanDownloads.value = sp.getBool('cleanDownloads') ?? true;
+  cleanDownloads.addListener(() => sp.setBool('cleanDownloads', cleanDownloads.value));
   originalQuality.addListener(() => sp.setBool('originalQuality', originalQuality.value));
   hideDupes.value = sp.getBool('hideDupes') ?? false;
   hideDupesDeep.value = sp.getBool('hideDupesDeep') ?? true;

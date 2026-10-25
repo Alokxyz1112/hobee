@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.3.9-red">
+  <img alt="version" src="https://img.shields.io/badge/version-1.3.10-red">
   <img alt="platform" src="https://img.shields.io/badge/platform-Android-3DDC84">
   <img alt="flutter" src="https://img.shields.io/badge/Flutter-3.47.8-02569B">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-blue">
@@ -38,6 +38,7 @@ I'm a student and this is a hobby project. It works well for me, but read [Known
 - [FAQ](#faq)
 - [Roadmap](#roadmap)
 - [The journey](#the-journey)
+- [Changelog](#changelog)
 - [Contributing](#contributing)
 - [Credits](#credits)
 - [License](#license)
@@ -53,7 +54,8 @@ I'm a student and this is a hobby project. It works well for me, but read [Known
 - Month headers and a year/month **jump** sheet for long histories
 - Four layouts: Card, Slides, Compact, Gallery
 - **Image upscaling (super resolution)** in the viewer: 2x, 3x or 4x, right on your phone, no server, no limits. Drag the divider to compare before and after, long-press to peek at the original, save as a full quality PNG. See [Image upscaling](#image-upscaling)
-- Full-screen viewer with swipe, galleries, videos and downloads (to `Pictures/Hobee` and `Movies/Hobee`)
+- Full-screen viewer with swipe, galleries, videos and downloads (to `Pictures` and `Movies`)
+- **Clean downloads** (Settings, on by default): saved pictures have their EXIF, GPS, XMP, IPTC and comments removed and nothing is added, so a file does not say where it came from. Names are a plain timestamp like `20261025_233900.jpg`. Videos are saved as they are
 - Local SQLite cache, so posts you've already loaded open instantly and you can search them offline
 - Light / Dark / Auto theme
 - Works without logging in. Logging in with Reddit (bring your own client ID) unlocks the Home feed and the Search tab
@@ -76,7 +78,7 @@ The photos are SFW nature posts from a public profile. You can see real source e
 
 ## Install
 
-1. Download `Hobee-1.3.9-arm64.apk` from the [Releases](../../releases) page. It's the build for almost every phone from the last ~6 years (arm64-v8a).
+1. Download `Hobee-1.3.10-arm64.apk` from the [Releases](../../releases) page. It's the build for almost every phone from the last ~6 years (arm64-v8a).
 2. Open it on your phone and allow "install unknown apps" for your browser or file manager.
 3. That's it. Deep Search works straight away without logging in.
 
@@ -225,7 +227,8 @@ Media hosts: i.redd.it, preview.redd.it, Reddit galleries, v.redd.it videos and 
 | `source_bar.dart` | The per-source status lines |
 | `search.dart` | Users/Subreddits search and cached search |
 | `viewer.dart` | Full-screen viewer, image fallback chain, video page |
-| `download.dart` | Saving to Pictures/Hobee and Movies/Hobee |
+| `download.dart` | Saving to Pictures and Movies |
+| `clean.dart` | Clean downloads: metadata stripping and timestamp file names |
 | `settings.dart` | The Settings screen |
 
 ### Data flow
@@ -337,7 +340,7 @@ Honest notes:
 
 **Why did a post disappear after I turned on Hide duplicates?** It looked the same as another post (dHash distance ≤ 6). Turn it off to see everything.
 
-**Where are my downloads?** `Pictures/Hobee` and `Movies/Hobee`.
+**Where are my downloads?** `Pictures` and `Movies`, named by the time you saved them.
 
 **iOS?** No. I only have an Android phone.
 
@@ -366,6 +369,11 @@ Some of what went wrong while building this. All of these actually happened.
 - **Everything loads, then nothing does (1.3.7).** Scroll Deep Search for a while and the tiles further down just stayed blank, images and videos both. Tapping each one got some to load and some not. My fault from 1.3.7: every tile ran a full "is this alive" check before even trying its image, and only 6 checks ran at a time, first come first served. One check can try five URLs plus the Wayback Machine, so a long scroll queued hundreds of checks for tiles that were already off screen, and the ones you were actually looking at waited at the back of the line. A stalled connection could also hold a slot for ages. In 1.3.8 a tile just loads its image straight away and only asks for a check if that fails, the queue serves what's on screen first and drops tiles you scrolled past, a check gives up after 25 seconds without calling the image gone, scrolling back to a tile tries again, and the image cache is bigger so thumbnails near the screen don't get thrown out. I wrote a test that scrolls through 400 tiles with a fake slow network to make sure the bottom ones still load.
 - **Picking an upscaler.** I wanted proper upscaling in the viewer, so I tested a bunch of projects on real Reddit pictures: Real-ESRGAN (three of its models), SwinIR, plus reading up on HAT, DAT, SPAN, Real-CUGAN, waifu2x, APISR, BSRGAN, GFPGAN, CodeFormer and the diffusion ones like SUPIR and StableSR. SwinIR looked about as good as Real-ESRGAN Ultra but took twice as long, HAT and DAT are even heavier, the diffusion ones need a real GPU, CodeFormer and APISR have licenses I can't ship in an MIT app, and a lot of the popular community models are non commercial. Real-ESRGAN won: BSD licensed code and weights, great results, and a tiny model that actually runs on a phone. I also tried running a second pass on top of the first for extra detail, and it mostly made up fake texture, so I didn't ship that.
 - **Original quality.** I read through gallery-dl and bdfr to figure out the preview → i.redd.it and imgur suffix tricks.
+
+## Changelog
+
+- **1.3.10**: Clean downloads. Single, gallery and upscaled saves drop EXIF (including GPS and software tags), XMP, IPTC and comments from JPEG, PNG, WebP and GIF. Only the ICC color profile is kept. No camera or device info is ever written. Files are named by save time (for example `20261025_233900.jpg`) and go to plain `Pictures` and `Movies` folders. Toggle in Settings, on by default. Videos are not changed.
+- **1.3.9**: On-device image upscaling with Real-ESRGAN.
 
 ## Contributing
 

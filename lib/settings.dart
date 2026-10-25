@@ -1,3 +1,4 @@
+import 'clean.dart';
 import 'package:flutter/material.dart';
 import 'glass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -184,6 +185,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (v) => originalQuality.value = v,
           ),
         ),
+        ValueListenableBuilder(
+          valueListenable: cleanDownloads,
+          builder: (_, on, _) => SwitchListTile(
+            title: const Text('Clean downloads (remove metadata)'),
+            subtitle: const Text('Strips EXIF, GPS, XMP, IPTC and comments from saved pictures. Files get a plain timestamp name. Nothing is added.'),
+            value: on,
+            onChanged: (v) => cleanDownloads.value = v,
+          ),
+        ),
         const Divider(),
         const ListTile(dense: true, title: Text('No-login public sources (Deep Search)'),
             subtitle: Text('Used when logged out, in order: Reddit JSON → Reddit RSS → Redlib → archives. Merged by post id.')),
@@ -244,7 +254,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const ListTile(
           leading: Icon(Icons.info_outline),
           title: Text('Hobee v$appVersion'),
-          subtitle: Text('No ads, no analytics, no tracking. Downloads go to Pictures/Hobee and Movies/Hobee.'),
+          subtitle: Text('No ads, no analytics, no tracking. Downloads go to Pictures and Movies.'),
         ),
       ]),
     );

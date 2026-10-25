@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'clean.dart';
 import 'models.dart';
 
 const _ch = MethodChannel('hobee/media');
@@ -37,7 +38,19 @@ class Downloader {
         _ => 'image/jpeg',
       };
 
-  /// Downloads one media item and saves it to Pictures/Hobee or Movies/Hobee.
+  /// Writes a metadata-free copy next to [f] when Clean downloads is on.
+  static Future<File> _clean(File f) async {
+    if (!cleanDownloads.value) return f;
+    final b = await f.readAsBytes();
+    final c = stripMetadata(b);
+    if (identical(c, b)) return f;
+    final o = File('${f.path}.clean');
+    await o.writeAsBytes(c);
+    return o;
+  }
+
+  /// Downloads one media item and saves it to Pictures or Movies with a plain timestamp name.
+  /// [baseName] is no longer used for the file name, so nothing names the source.
   static Future<String> save(MediaItem m, String baseName) async {
     await _perm();
     final ts = DateTime.now().millisecondsSinceEpoch;
@@ -63,7 +76,7 @@ class Downloader {
           }
         }
       }
-      final name = '${baseName}_$ts.mp4';
+      final name = timestampName(DateTime.now(), 'mp4');
       final r = await _ch.invokeMethod<String>('save', {'path': out.path, 'name': name, 'mime': 'video/mp4', 'video': true});
       return r ?? name;
     } else {
@@ -79,15 +92,18 @@ class Downloader {
         f = await _fetch(src, 'i_$ts.${_ext(src, 'jpg')}');
       }
       final ext = _ext(src, 'jpg');
-      final name = '${baseName}_$ts.$ext';
+      final name = timestampName(DateTime.now(), ext == 'jpeg' ? 'jpg' : ext);
+      f = await _clean(f);
       final r = await _ch.invokeMethod<String>('save', {'path': f.path, 'name': name, 'mime': _mime(ext), 'video': false});
       return r ?? name;
     }
   }
 
-  /// Saves a file that's already on the phone (upscaled PNG) to Pictures/Hobee.
-  static Future<String> saveFile(String path, String name, String mime) async {
+  /// Saves a file that's already on the phone (upscaled PNG) to Pictures, cleaned like any download.
+  static Future<String> saveFile(String path, String ext, String mime) async {
     await _perm();
+    final name = timestampName(DateTime.now(), ext);
+    path = (await _clean(File(path))).path;
     final r = await _ch.invokeMethod<String>('save', {'path': path, 'name': name, 'mime': mime, 'video': false});
     return r ?? name;
   }

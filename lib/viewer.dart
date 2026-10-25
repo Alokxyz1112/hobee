@@ -58,7 +58,7 @@ class _ViewerState extends State<Viewer> {
         m.showSnackBar(SnackBar(content: Text('Failed: $err')));
       }
     }
-    m.showSnackBar(SnackBar(content: Text('Saved $ok/${items.length} to Hobee folder')));
+    m.showSnackBar(SnackBar(content: Text('Saved $ok/${items.length} to Pictures')));
   }
 
   Widget _photo(String url, MediaItem it) =>
