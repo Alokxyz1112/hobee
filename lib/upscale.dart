@@ -8,6 +8,7 @@ import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
+import 'jpeg_restore.dart';
 import 'upscale_post.dart';
 export 'upscale_post.dart' show PostOptions;
 
@@ -140,8 +141,12 @@ class DecodedImage {
 
 /// Isolate entry (top level, plain data in and out): encoded bytes -> RGB, shrunk if huge.
 DecodedImage decodeForUpscale((Uint8List, int) a) {
-  var im = img.decodeImage(a.$1);
+  // JPEG: constrained decode straight from the file's own DCT data (fewer blocks, colour that follows edges).
+  // Anything else, or a JPEG it can't handle: the normal decoder.
+  final r = restoreJpeg(a.$1);
+  var im = r != null ? restoredImage(r) : img.decodeImage(a.$1);
   if (im == null) throw Exception('Could not read this image');
+  if (r == null && im.exif.imageIfd.orientation != null && im.exif.imageIfd.orientation != 1) im = img.bakeOrientation(im);
   final ow = im.width, oh = im.height;
   // The 4x intermediate (16x the pixels) has to stay under maxOutPixels.
   final maxIn = maxOutPixels / 16;

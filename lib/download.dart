@@ -111,7 +111,8 @@ class Downloader {
   /// Fetches image bytes for the upscaler: the original first, then the preview copy.
   static Future<Uint8List> imageBytes(MediaItem m) async {
     Object? err;
-    for (final u in {m.full, ?m.preview, m.url}) {
+    // Always the original upload first, even with Original quality off: the preview is resized and recompressed.
+    for (final u in {m.url, ?m.preview}) {
       if (!u.startsWith('http')) continue;
       try {
         final r = await http.get(Uri.parse(u), headers: {'User-Agent': 'android:com.alok.hobee:v1.0'});
