@@ -16,32 +16,8 @@ import java.io.FileInputStream
 import java.nio.ByteBuffer
 
 class MainActivity : FlutterActivity() {
-    private var upscaler: NativeUpscaler? = null
-
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        val up = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "hobee/upscale")
-        up.setMethodCallHandler { call, result ->
-            when (call.method) {
-                "cancel" -> { upscaler?.cancel?.set(true); result.success(true) }
-                "run" -> Thread {
-                    try {
-                        val u = NativeUpscaler { d, t, b -> runOnUiThread { up.invokeMethod("progress", mapOf("done" to d, "total" to t, "backend" to b)) } }
-                        upscaler = u
-                        val r = u.run(call.argument<String>("model")!!, call.argument<String>("input")!!,
-                            call.argument<Int>("w")!!, call.argument<Int>("h")!!, call.argument<Int>("scale")!!,
-                            call.argument<Int>("tile")!!, call.argument<Int>("pad")!!, call.argument<String>("output")!!,
-                            call.argument<List<String>>("backends")!!)
-                        runOnUiThread { result.success(r) }
-                    } catch (e: InterruptedException) {
-                        runOnUiThread { result.error("CANCELLED", "cancelled", null) }
-                    } catch (e: Throwable) {
-                        runOnUiThread { result.error("ERR", e.toString(), null) }
-                    }
-                }.start()
-                else -> result.notImplemented()
-            }
-        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "hobee/media").setMethodCallHandler { call, result ->
             Thread {
                 try {

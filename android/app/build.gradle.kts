@@ -63,7 +63,3 @@ flutter {
     source = "../.."
 }
 
-dependencies {
-    // Same version the flutter_onnxruntime plugin pulls in, so Gradle keeps one copy. Used by NativeUpscaler.kt.
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.28.0")
-}

@@ -33,7 +33,6 @@ I'm a student and this is a hobby project. It works well for me, but read [Known
   - [Settings](#settings)
 - [Supported sources](#supported-sources)
 - [How it works](#how-it-works)
-- [Image upscaling](#image-upscaling)
 - [Known issues](#known-issues)
 - [FAQ](#faq)
 - [Roadmap](#roadmap)
@@ -53,7 +52,6 @@ I'm a student and this is a hobby project. It works well for me, but read [Known
 - Filters for All / Images / Videos / Galleries / Text, plus a "show posts between" date filter
 - Month headers and a year/month **jump** sheet for long histories
 - Four layouts: Card, Slides, Compact, Gallery
-- **Image upscaling (super resolution)** in the viewer: 2x, 3x or 4x, right on your phone, no server, no limits. Drag the divider to compare before and after, long-press to peek at the original, save as a full quality PNG. See [Image upscaling](#image-upscaling)
 - Full-screen viewer with swipe, galleries, videos and downloads (to `Pictures` and `Movies`)
 - **Clean downloads** (Settings, on by default): saved pictures have their EXIF, GPS, XMP, IPTC and comments removed and nothing is added, so a file does not say where it came from. Names are a plain timestamp like `20261025_233900.jpg`. Videos are saved as they are
 - Local SQLite cache, so posts you've already loaded open instantly and you can search them offline
@@ -300,48 +298,8 @@ Installed-app OAuth: Hobee opens Reddit's authorize page with your client ID, Re
 
 No ads, no analytics, no tracking, no server of mine. Everything goes straight from your phone to Reddit/the sources above. The cache and settings stay on your phone.
 
-## Image upscaling
-
-Tap the sparkle icon in the viewer on any picture (not videos). Pick 2x, 3x or 4x and a model:
-
-| Model | What it's good at | Size | License | Rough speed on a mid range phone (estimate) |
-| --- | --- | --- | --- | --- |
-| **Fast** ([4xLSDIRCompactC](https://github.com/Phhofm/models) by Philip Hofmann) | Photos, screenshots, compressed Reddit JPEGs | 2.5 MB, built into the app | CC-BY-4.0 | about 2 s per megapixel |
-| **Ultra** ([4xNomosWebPhoto_RealPLKSR](https://github.com/Phhofm/models) by Philip Hofmann) | The most natural detail on photos and people | 30 MB, downloaded once | CC-BY-4.0 | about 25 s per megapixel |
-| **Art** (RealESRGAN_x4plus_anime_6B) | Drawings, anime, memes, clean lines | 18 MB, downloaded once | BSD-3-Clause | about 15 s per megapixel |
-
-The picker shows a time estimate for the picture you're on, and after your first run it uses your phone's real speed.
-
-Options in the picker:
-- **Look: Natural or Sharp.** Natural softly blends back a bit of the original so skin and walls don't get that plastic look. Sharp keeps everything the model made.
-- **Restore color.** Gives faded pictures a gentle color lift. Skin tones are protected so nobody turns orange.
-- **Film grain.** Adds back a light grain matched to the source, so the result looks like a photo and not a render.
-- **JPEG cleanup is automatic.** Hobee reads how hard the JPEG was compressed and smooths blocky color more on bad ones.
-
-All of it is free to use as much as you want. Everything runs on the phone with ONNX Runtime. It tries the phone's NPU or GPU first (NNAPI, fp16), then XNNPACK, then plain CPU, and moves on by itself if one fails. Big pictures are cut into tiles so they don't run out of memory. You can cancel any time.
-
-Before and after, on 16 Reddit crops (8 of them people, mostly brown and darker Indian skin), measured on my desktop CPU:
-
-| | Old Fast | New Fast | Old Ultra | New Ultra |
-| --- | --- | --- | --- | --- |
-| Time per 192 px crop | 0.08 s | 0.04 s | 1.61 s | 1.02 s |
-| Color shift (dE, lower is better) | 1.96 | 0.27 | 2.70 | 0.30 |
-| Skin lightness shift (L) | -0.49 | -0.06 | -1.13 | -0.17 |
-| MUSIQ (higher is better) | 55.4 | 54.2 | 63.9 | 61.4 |
-| NIQE (lower is better) | 6.44 | 4.66 | 4.51 | 4.73 |
-
-Every model now keeps colors anchored to the original, so skin doesn't get lighter, redder or orange. MUSIQ drops a little with the Natural look on, because it rewards extra crunchy detail. Switch to Sharp if you want that.
-
-Honest notes:
-- These are all 4x models. 2x and 3x run the 4x model and then shrink the result with a good filter. In my tests that beat the real 2x models.
-- Huge pictures get shrunk a bit first so the 4x step stays under about 20 megapixels.
-- Upscaling makes things sharper, it can't bring back detail that was never there. Tiny faces in group shots stay soft. There's no face restore, because the good ones (GFPGAN, CodeFormer) change how people look and have licenses I can't ship.
-- I also tried FBCNN, SCUNet and 1xDeJPG as a JPEG cleanup step before upscaling. They only helped a tiny bit over the Fast model (which already learned JPEG) and are 70 to 290 MB, so they're not in.
-- The Ultra and Art files come from this repo's `models-v2` release, converted to ONNX, nothing retrained. Details in [assets/models/README.md](assets/models/README.md).
-
 ## Known issues
 
-- **Ultra upscaling is slow** on big pictures, it can take a minute or two on older phones. Fast is the quick option.
 - **Reddit JSON often returns 403** and **RSS gets rate-limited (429)**. Hobee falls back to the other sources, but sometimes you only get archive results.
 - **Login needs your own client ID**, and Reddit may still want an access request before it works.
 - **Search tab needs login** for now.
@@ -367,7 +325,6 @@ Honest notes:
 
 ## Roadmap
 
-- Face restoration for upscaled photos (looking at GFPGAN, Apache-2.0)
 - Proper Reddit OAuth by default once my API access is approved
 - Public (no-login) sources for the Search tab
 - More testing on different phones
@@ -388,13 +345,12 @@ Some of what went wrong while building this. All of these actually happened.
 - **Grey tiles with a reload icon (1.3.6).** Deep Search was full of them. I spent an evening curling every URL the app built and found the dumb part: my "is it alive" check asked for 1 byte with a Range header, and preview.redd.it says 206 to that even for deleted images. A normal GET says 404. So dead previews got cached as working, every image load failed, and the tile sat there with a reload icon that just tried the same dead links again. 1.3.7 checks properly, retries with a short backoff, shows "Image gone" when it really is gone, and the reload button now clears the cache and checks again. On 199 archive tiles from 4 real profiles: before, 34 were stuck on the reload icon; after, 1 was (159 load, 39 are truly gone).
 - **Same picture three times.** Deep Search merges Live, Arctic Shift and PullPush, and people repost. Dupes now also match on post id and on imgur ids with the size letter stripped, and the copy that stays is the best one (Live, then Archive, then Removed, then the biggest). The month counts only count what's shown.
 - **Everything loads, then nothing does (1.3.7).** Scroll Deep Search for a while and the tiles further down just stayed blank, images and videos both. Tapping each one got some to load and some not. My fault from 1.3.7: every tile ran a full "is this alive" check before even trying its image, and only 6 checks ran at a time, first come first served. One check can try five URLs plus the Wayback Machine, so a long scroll queued hundreds of checks for tiles that were already off screen, and the ones you were actually looking at waited at the back of the line. A stalled connection could also hold a slot for ages. In 1.3.8 a tile just loads its image straight away and only asks for a check if that fails, the queue serves what's on screen first and drops tiles you scrolled past, a check gives up after 25 seconds without calling the image gone, scrolling back to a tile tries again, and the image cache is bigger so thumbnails near the screen don't get thrown out. I wrote a test that scrolls through 400 tiles with a fake slow network to make sure the bottom ones still load.
-- **Picking an upscaler.** I wanted proper upscaling in the viewer, so I tested a bunch of projects on real Reddit pictures: Real-ESRGAN (three of its models), SwinIR, plus reading up on HAT, DAT, SPAN, Real-CUGAN, waifu2x, APISR, BSRGAN, GFPGAN, CodeFormer and the diffusion ones like SUPIR and StableSR. SwinIR looked about as good as Real-ESRGAN Ultra but took twice as long, HAT and DAT are even heavier, the diffusion ones need a real GPU, CodeFormer and APISR have licenses I can't ship in an MIT app, and a lot of the popular community models are non commercial. Real-ESRGAN won: BSD licensed code and weights, great results, and a tiny model that actually runs on a phone. I also tried running a second pass on top of the first for extra detail, and it mostly made up fake texture, so I didn't ship that.
 - **Can you "uncompress" a JPEG?** Not really. The Huffman part is lossless and every decoder already undoes it fully. What's gone is the rounding of each 8x8 block's numbers. But the file still says how big each rounding step was, so you can pick a smoother picture that still rounds to the exact same numbers. That's the idea behind Google's Knusperli and jpeg2png (no code taken from either). I also looked at learned JPEG cleanup models like FBCNN and SCUNet: nice results, but way too heavy and slow for a phone. WebP previews use a different codec with its own built in deblocking, so for those the best move is just fetching the original.
 - **Original quality.** I read through gallery-dl and bdfr to figure out the preview → i.redd.it and imgur suffix tricks.
 
 ## Changelog
 
-- **1.3.12**: Cleaner pictures before upscaling. Reddit recompresses uploads (even the "original" i.redd.it files come out around JPEG quality 80 with half size color), and the upscaler used to blow up the blocks and the blocky, bleeding reds. Now Hobee reads the JPEG's own stored data (the quant tables and the DCT numbers per 8x8 block), smooths only within the range the file allows, so real grain and skin texture stay, and rebuilds the color layer using the brightness edges so reds stop smearing. Upscaling also always grabs the original upload, even with Original quality off, and phone photos with a rotation flag no longer come out sideways.
+- **1.4.0**: Upscaling moved out of Hobee, so the app is a lot smaller. Pictures look cleaner instead: Reddit recompresses everything (even the "original" i.redd.it files come out around JPEG quality 80 with half size color), so Hobee now reads the JPEG's own stored data, smooths only within what the file allows (real grain and skin texture stay) and rebuilds the color using the brightness edges, so reds stop bleeding. On in the viewer and for saved pictures, which now save as a cleaned PNG by default (Settings has Clean up compression and Save the original file). Still metadata free with date based names. Phone photos with a rotation flag no longer come out sideways.
 - **1.3.11**: Upscaler overhaul. New Fast and Ultra models that are faster and keep colors and skin tones true, runs on the phone's NPU or GPU when it can, a time estimate in the picker, Natural or Sharp look, Restore color and Film grain options, and automatic cleanup for heavily compressed JPEGs.
 - **1.3.10**: Clean downloads. Single, gallery and upscaled saves drop EXIF (including GPS and software tags), XMP, IPTC and comments from JPEG, PNG, WebP and GIF. Only the ICC color profile is kept. No camera or device info is ever written. Files are named by save time (for example `20261025_233900.jpg`) and go to plain `Pictures` and `Movies` folders. Toggle in Settings, on by default. Videos are not changed. Also fixes the upscaler crash from 1.3.9 ("object is unsendable" red screen when tapping Upscale): the background work now only gets plain image data, and errors show a short message with a Retry button.
 - **1.3.9**: On-device image upscaling with Real-ESRGAN.
@@ -414,10 +370,6 @@ Issues and PRs are welcome. Please:
 - [Redlib](https://github.com/redlib-org/redlib) and the people running public instances
 - [gallery-dl](https://github.com/mikf/gallery-dl) and [bdfr](https://github.com/aliparlakci/bulk-downloader-for-reddit), whose code taught me the original-quality tricks
 - The Internet Archive's Wayback Machine
-- [Philip Hofmann's models](https://github.com/Phhofm/models), 4xLSDIRCompactC and 4xNomosWebPhoto_RealPLKSR, for the Fast and Ultra upscalers. CC-BY-4.0, see [assets/models/ATTRIBUTION.md](assets/models/ATTRIBUTION.md)
-- [ONNX Runtime](https://github.com/microsoft/onnxruntime) by Microsoft, MIT
-- [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) by Xintao Wang, Liangbin Xie, Chao Dong and Ying Shan, for the Art upscaling model. BSD-3-Clause, see [assets/models/LICENSE-Real-ESRGAN.txt](assets/models/LICENSE-Real-ESRGAN.txt)
-- [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT) through [flutter_onnxruntime](https://pub.dev/packages/flutter_onnxruntime)
 - Flutter and the package authors in `pubspec.yaml`
 
 ## License
