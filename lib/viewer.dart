@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'archive.dart';
 import 'archive_ui.dart';
+import 'clean_image.dart';
 import 'download.dart';
 import 'filters.dart';
 import 'models.dart';
@@ -248,6 +249,8 @@ class PhotoFallbackState extends State<PhotoFallback> {
 
   ImageProvider _provider(String u, int maxPx) {
     if (widget.providerFor != null) return widget.providerFor!(u, maxPx);
+    // Reddit JPEGs: clean up the compression first (blocks, bleeding reds). Same size cap as below.
+    if (cleanJpegs.value) return CleanNetworkImage(u, maxPx, headers: const {'User-Agent': viewerUserAgent});
     // Cap decode size: some originals are 4000-9000 px wide and fail to decode on phones.
     return ResizeImage(NetworkImage(u, headers: const {'User-Agent': viewerUserAgent}), width: maxPx, policy: ResizeImagePolicy.fit, allowUpscaling: false);
   }
@@ -271,6 +274,7 @@ class PhotoFallbackState extends State<PhotoFallback> {
   void retry() {
     for (final u in urls) {
       PaintingBinding.instance.imageCache.evict(NetworkImage(u, headers: const {'User-Agent': viewerUserAgent}));
+      PaintingBinding.instance.imageCache.clear();
     }
     PaintingBinding.instance.imageCache.clearLiveImages();
     setState(() {

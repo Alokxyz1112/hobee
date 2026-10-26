@@ -1,4 +1,5 @@
 import 'clean.dart';
+import 'clean_image.dart';
 import 'package:flutter/material.dart';
 import 'glass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -183,6 +184,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: const Text('Viewer and downloads use the original upload (i.redd.it / imgur original) instead of Reddit\'s resized preview. Grid thumbnails stay small.'),
             value: on,
             onChanged: (v) => originalQuality.value = v,
+          ),
+        ),
+        ValueListenableBuilder(
+          valueListenable: cleanJpegs,
+          builder: (_, on, _) => SwitchListTile(
+            title: const Text('Clean up compression'),
+            subtitle: const Text('Reddit squashes pictures. This smooths out the blocky patches and bleeding reds in the viewer and in saved pictures, without touching real detail.'),
+            value: on,
+            onChanged: (v) => cleanJpegs.value = v,
+          ),
+        ),
+        ValueListenableBuilder(
+          valueListenable: saveOriginalBytes,
+          builder: (_, on, _) => SwitchListTile(
+            title: const Text('Save the original file'),
+            subtitle: const Text('Off: pictures save as a cleaned up PNG. On: you get the exact file Reddit sent, smaller but with the blocks.'),
+            value: on,
+            onChanged: (v) => saveOriginalBytes.value = v,
           ),
         ),
         ValueListenableBuilder(

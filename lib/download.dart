@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/foundation.dart';
 import 'clean.dart';
+import 'clean_image.dart';
 import 'models.dart';
 
 const _ch = MethodChannel('hobee/media');
@@ -91,7 +93,20 @@ class Downloader {
         src = alt;
         f = await _fetch(src, 'i_$ts.${_ext(src, 'jpg')}');
       }
-      final ext = _ext(src, 'jpg');
+      var ext = _ext(src, 'jpg');
+      // Cleaned copy (default): JPEG compression cleaned up, saved as PNG so nothing gets recompressed again.
+      // Too big or not a JPEG: the original file as is.
+      if (cleanJpegs.value && !saveOriginalBytes.value) {
+        final b = await f.readAsBytes();
+        if (isJpeg(b)) {
+          final png = await compute(cleanPng, b);
+          if (png != null) {
+            f = File('${f.path}.png');
+            await f.writeAsBytes(png);
+            ext = 'png';
+          }
+        }
+      }
       final name = timestampName(DateTime.now(), ext == 'jpeg' ? 'jpg' : ext);
       f = await _clean(f);
       final r = await _ch.invokeMethod<String>('save', {'path': f.path, 'name': name, 'mime': _mime(ext), 'video': false});

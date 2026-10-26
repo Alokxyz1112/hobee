@@ -1,4 +1,5 @@
 import 'clean.dart';
+import 'clean_image.dart';
 import 'package:flutter/material.dart';
 import 'glass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -58,6 +59,10 @@ Future<void> loadFilterPrefs() async {
   hideRead.value = sp.getBool('hideRead') ?? false;
   originalQuality.value = sp.getBool('originalQuality') ?? true;
   cleanDownloads.value = sp.getBool('cleanDownloads') ?? true;
+  cleanJpegs.value = sp.getBool('cleanJpegs') ?? true;
+  cleanJpegs.addListener(() => sp.setBool('cleanJpegs', cleanJpegs.value));
+  saveOriginalBytes.value = sp.getBool('saveOriginalBytes') ?? false;
+  saveOriginalBytes.addListener(() => sp.setBool('saveOriginalBytes', saveOriginalBytes.value));
   cleanDownloads.addListener(() => sp.setBool('cleanDownloads', cleanDownloads.value));
   originalQuality.addListener(() => sp.setBool('originalQuality', originalQuality.value));
   hideDupes.value = sp.getBool('hideDupes') ?? false;
