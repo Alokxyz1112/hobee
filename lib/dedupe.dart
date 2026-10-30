@@ -14,7 +14,12 @@ import 'models.dart';
 class Dedupe {
   static const maxDistance = 6;
   static const _maxPerPost = 4; // hash at most this many images per gallery
+  static const _bands = maxDistance + 1; // 7 bands of 9 bits (last one 10)
+  static const _bandBits = 9;
+  static const _bandMask = (1 << 10) - 1; // last band: bits 54..63
+  static const _bandMask9 = (1 << 9) - 1;
   static final Map<String, int?> _mem = {}; // thumb url -> hash (null = failed)
+  static final Map<String, List<String>> _keys = {}; // post id -> exact keys (posts don't change)
   static final Set<String> _pending = {};
   static final version = ValueNotifier<int>(0); // bumps when new hashes arrive
   static Timer? _bump;
@@ -41,7 +46,7 @@ class Dedupe {
     // 1) exact keys
     final seen = <String, int>{};
     for (var i = 0; i < n; i++) {
-      for (final k in exactKeys(posts[i])) {
+      for (final k in _keys.putIfAbsent(posts[i].id, () => exactKeys(posts[i]).toList())) {
         final j = seen[k];
         if (j == null) {
           seen[k] = i;
@@ -65,14 +70,33 @@ class Dedupe {
       }
       return out;
     });
-    // All-pairs compare among hashed posts (a profile is a few thousand posts at most; popcount on ints is cheap).
-    final idx = [for (var i = 0; i < n; i++) if (hashes[i].isNotEmpty) i];
-    for (var a = 0; a < idx.length; a++) {
-      final ha = hashes[idx[a]];
-      for (var b = a + 1; b < idx.length; b++) {
-        final hb = hashes[idx[b]];
-        if ((ha.length == 1) != (hb.length == 1)) continue; // single vs gallery
-        if (_similar(ha, hb)) union(idx[a], idx[b]);
+    // Candidate pairs via band buckets instead of all-pairs: a 64-bit hash split into
+    // maxDistance + 1 bands; two hashes within maxDistance bits must agree exactly on at least
+    // one band (pigeonhole), so only posts sharing a band bucket are compared. Same result,
+    // roughly linear instead of quadratic on big profiles.
+    final buckets = <int, List<int>>{};
+    for (var i = 0; i < n; i++) {
+      final hs = hashes[i];
+      if (hs.isEmpty) continue;
+      final kind = hs.length == 1 ? 0 : 1; // single vs gallery never match
+      for (final h in hs) {
+        for (var b = 0; b < _bands; b++) {
+          final key = (((h >> (b * _bandBits)) & (b == _bands - 1 ? _bandMask : _bandMask9)) << 8) | (b << 1) | kind;
+          (buckets[key] ??= <int>[]).add(i);
+        }
+      }
+    }
+    final tried = <int>{};
+    for (final list in buckets.values) {
+      if (list.length < 2) continue;
+      for (var a = 0; a < list.length; a++) {
+        for (var b = a + 1; b < list.length; b++) {
+          final i = list[a], j = list[b];
+          if (i == j || find(i) == find(j)) continue;
+          final pair = i < j ? i * n + j : j * n + i;
+          if (!tried.add(pair)) continue;
+          if (_similar(hashes[i], hashes[j])) union(i, j);
+        }
       }
     }
 
@@ -183,7 +207,7 @@ class Dedupe {
       }).whenComplete(() {
         _running--;
         _pending.remove(u);
-        _bump ??= Timer(const Duration(milliseconds: 800), () {
+        _bump ??= Timer(const Duration(milliseconds: 2000), () {
           _bump = null;
           version.value++;
         });
@@ -191,6 +215,23 @@ class Dedupe {
       });
     }
   }
+
+  /// Cached hash for a thumb (memory, then SQLite); [fetch] downloads and hashes when missing.
+  static Future<int?> hashFor(String url, {bool fetch = true}) async {
+    if (url.isEmpty) return null;
+    if (_mem.containsKey(url)) return _mem[url];
+    final got = await Db.hashes([url]);
+    if (got.containsKey(url)) return _mem[url] = got[url];
+    if (!fetch) return null;
+    final h = await _hashUrl(url);
+    _mem[url] = h;
+    await Db.setHash(url, h);
+    return h;
+  }
+
+  static int? cachedHash(String url) => _mem[url];
+  static bool known(String url) => _mem.containsKey(url);
+  static const maxPerPost = _maxPerPost;
 
   static Future<int?> _hashUrl(String url) async {
     try {

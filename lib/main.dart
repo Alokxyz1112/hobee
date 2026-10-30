@@ -1,6 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'crash_log.dart';
 import 'glass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'accounts.dart';
+import 'player.dart';
 import 'archive.dart';
 import 'public_sources.dart';
 import 'auth.dart';
@@ -12,24 +16,60 @@ import 'posts_view.dart';
 import 'search.dart';
 import 'source_bar.dart';
 import 'settings.dart';
+import 'sub_search.dart';
+import 'sub_users.dart';
+import 'viewed.dart';
 
 const accent = Color(0xFFE53935);
 final themeMode = ValueNotifier<ThemeMode>(ThemeMode.system);
 
-Future<void> main() async {
+void main() {
+  runZonedGuarded(_main, (e, s) => CrashLog.record(e, s));
+}
+
+Future<void> _main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _safe('crashlog', CrashLog.init);
   final sp = await SharedPreferences.getInstance();
-  themeMode.value = ThemeMode.values[sp.getInt('theme') ?? 0];
-  await loadFilterPrefs();
-  await ArchiveConfig.load();
-  await RedlibConfig.load();
-  await Recents.load();
-  await Auth.i.init();
-  // Long deep-search scrolls hold a lot of thumbnails; the 100 MB default kept evicting ones still near the screen.
+  // If the last launch died before the first frame settled, start in safe mode: drop saved search state.
+  if (sp.getBool('booting') ?? false) {
+    CrashLog.record('Previous launch did not finish; search state reset (safe mode)', null, 'boot');
+    await _safe('reset', () async {
+      for (final k in sp.getKeys().toList()) {
+        if (k.startsWith('filters.') || k == 'mediaFilter') await sp.remove(k);
+      }
+    });
+  }
+  await sp.setBool('booting', true);
+  themeMode.value = ThemeMode.values[(sp.getInt('theme') ?? 0).clamp(0, ThemeMode.values.length - 1)];
+  await _safe('filters', loadFilterPrefs);
+  await _safe('archive', ArchiveConfig.load);
+  await _safe('redlib', RedlibConfig.load);
+  await _safe('recents', Recents.load);
+  await _safe('deepHistory', () async => DeepHistory.load());
+  await _safe('subHistory', SubHistory.load);
+  await _safe('subNav', () async => initSubNav());
+  await _safe('viewed', Viewed.load);
+  // Older builds saved suggestion filter choices; they are gone now, so drop the key.
+  await _safe('suggest', () async => sp.remove('suggestPrefs'));
+  await _safe('video', VideoPrefs.load);
+  await _safe('auth', Auth.i.init);
+  // Thumbs are decoded at display size (cacheWidth), so 160 MB holds plenty without OOM pressure on big lists.
   PaintingBinding.instance.imageCache
-    ..maximumSizeBytes = 300 << 20
-    ..maximumSize = 2000;
+    ..maximumSizeBytes = 160 << 20
+    ..maximumSize = 1000;
   runApp(const HobeeApp());
+  // Startup counts as finished once the app has been up for a few seconds.
+  Timer(const Duration(seconds: 6), () => sp.setBool('booting', false));
+}
+
+/// One failing restore must never stop the app from opening.
+Future<void> _safe(String what, Future<void> Function() f) async {
+  try {
+    await f();
+  } catch (e, s) {
+    CrashLog.record('startup $what: $e', s, 'boot');
+  }
 }
 
 ThemeData _theme(Brightness b) => ThemeData(
@@ -61,6 +101,7 @@ class HobeeApp extends StatelessWidget {
         valueListenable: themeMode,
         builder: (_, m, _) => MaterialApp(
           title: 'Hobee',
+          scaffoldMessengerKey: messengerKey,
           debugShowCheckedModeBanner: false,
           theme: _theme(Brightness.light),
           darkTheme: _theme(Brightness.dark),

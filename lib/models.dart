@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'embeds.dart';
 
 /// Settings → 'Original quality': viewer and downloads use the original upload instead of Reddit's resized preview.
 final originalQuality = ValueNotifier<bool>(true);
@@ -66,6 +67,7 @@ class Post {
 
   static Post? fromJson(Map<String, dynamic> d) {
     if (d['title'] == null) return null; // comments etc.
+    if (d['over_18'] == true) return null; // adult posts are never shown in this build
     final media = parseMedia(d);
     return Post(d['id'] ?? d['name'], unesc(d['title'] ?? ''), d['subreddit'] ?? '', d['author'] ?? '',
         d['permalink'] ?? '', ((d['created_utc'] ?? 0) as num).toInt(), media, d);
@@ -126,8 +128,9 @@ List<MediaItem> parseMedia(Map<String, dynamic> d0) {
   // Reddit hosted video
   final rv = d['secure_media']?['reddit_video'] ?? d['media']?['reddit_video'];
   if (rv != null) {
-    out.add(MediaItem(MediaType.video, unesc(rv['fallback_url'] ?? ''), thumb,
-        hls: rv['hls_url'] != null ? unesc(rv['hls_url']) : null, redditVideo: true));
+    final fb = unesc(rv['fallback_url'] ?? '');
+    out.add(MediaItem(MediaType.video, fb, thumb,
+        hls: rv['hls_url'] != null ? unesc(rv['hls_url']) : Embeds.redditHls(fb), redditVideo: true));
     return out;
   }
 
@@ -139,6 +142,17 @@ List<MediaItem> parseMedia(Map<String, dynamic> d0) {
   if (vm != null) {
     final base = 'https://v.redd.it/${vm.group(1)}';
     out.add(MediaItem(MediaType.video, '$base/DASH_720.mp4', thumb, hls: '$base/HLSPlaylist.m3u8', redditVideo: true));
+    return out;
+  }
+
+  // RedGIFs / Streamable: resolved to an mp4 when played or saved. Reddit's own preview clip is the backup.
+  if (Embeds.redgifsId(url) != null || Embeds.streamableId(url) != null) {
+    final oe = (d['secure_media'] ?? d['media'])?['oembed'];
+    var th = thumb;
+    if (th.isEmpty && oe is Map && oe['thumbnail_url'] is String) th = unesc(oe['thumbnail_url']);
+    final rvp = d['preview']?['reddit_video_preview'];
+    final backup = rvp is Map && rvp['fallback_url'] != null ? unesc(rvp['fallback_url']) : null;
+    out.add(MediaItem(MediaType.video, url, th, preview: backup));
     return out;
   }
 
@@ -171,7 +185,7 @@ List<MediaItem> parseMedia(Map<String, dynamic> d0) {
   if (lower.endsWith('.gif') || rvp != null) {
     if (rvp != null && rvp['fallback_url'] != null) {
       out.add(MediaItem(MediaType.video, unesc(rvp['fallback_url']), thumb,
-          hls: rvp['hls_url'] != null ? unesc(rvp['hls_url']) : null));
+          hls: rvp['hls_url'] != null ? unesc(rvp['hls_url']) : Embeds.redditHls(unesc(rvp['fallback_url']))));
     } else {
       out.add(MediaItem(MediaType.gif, url, thumb.isEmpty ? url : thumb));
     }

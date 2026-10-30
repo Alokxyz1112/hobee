@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'sub_search.dart';
 import 'glass.dart';
 import 'api.dart';
 import 'auth.dart';
@@ -55,13 +56,22 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     setState(() { loading = true; error = null; });
     try {
-      final j = await Api.get(users ? '/users/search' : '/subreddits/search', {'q': n, 'limit': '25', 'include_over_18': 'on'});
+      final j = await Api.get(users ? '/users/search' : '/subreddits/search', {'q': n, 'limit': '25'});
       if (g != _gen) return;
-      results = [for (final c in j['data']['children'] as List) Map<String, dynamic>.from(c['data'])];
+      results = [
+        for (final c in j['data']['children'] as List)
+          if (!_adult(Map<String, dynamic>.from(c['data']))) Map<String, dynamic>.from(c['data'])
+      ];
     } catch (e) {
       if (g == _gen) error = '$e';
     }
     if (mounted && g == _gen) setState(() => loading = false);
+  }
+
+  /// Adult subreddits and profiles are never listed.
+  static bool _adult(Map<String, dynamic> d) {
+    final sub = d['subreddit'];
+    return d['over18'] == true || d['over_18'] == true || (sub is Map && sub['over_18'] == true);
   }
 
   void _open(String name, bool user) {
@@ -181,9 +191,10 @@ class _SearchScreenState extends State<SearchScreen> {
     final icon = (d['community_icon'] as String?)?.isNotEmpty == true ? d['community_icon'] as String : d['icon_img'] as String?;
     return ListTile(
       leading: _avatar(icon, Icons.forum),
-      title: Text('r/$name${d['over18'] == true ? '  · NSFW' : ''}'),
+      title: Text('r/$name'),
       subtitle: Text('${d['subscribers'] ?? 0} members · ${d['public_description'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis),
       onTap: () => _open(name, false),
+      trailing: IconButton(icon: const Icon(Icons.travel_explore), tooltip: 'Search all its posts', onPressed: () => openSubSearch(name)),
     );
   }
 }

@@ -55,6 +55,13 @@ I'm a student and this is a hobby project. It works well for me, but read [Known
 - Full-screen viewer with swipe, galleries, videos and downloads (to `Pictures` and `Movies`)
 - **Clean downloads** (Settings, on by default): saved pictures have their EXIF, GPS, XMP, IPTC and comments removed and nothing is added, so a file does not say where it came from. Names are a plain timestamp like `20261025_233900.jpg`. Videos are saved as they are
 - Local SQLite cache, so posts you've already loaded open instantly and you can search them offline
+- **Full history**: Deep Search pages back through the whole archive and keeps going after errors, with automatic loading of the next page
+- **Tappable usernames** everywhere, a profile header, and a **Users** view for subreddit results
+- **Keyword relevance search** in Subreddit Search
+- Dead images are hidden everywhere, with a quiet retry
+- Fast duplicate removal and parallel fetching
+- Crash-proof startup with a safe mode
+- Simple account suggestions and search, with no filter panels
 - Light / Dark / Auto theme
 - Works without logging in. Logging in with Reddit (bring your own client ID) unlocks the Home feed and the Search tab
 
@@ -72,15 +79,13 @@ I'm a student and this is a hobby project. It works well for me, but read [Known
 |---|---|---|
 | <img src="docs/screenshots/01-home.png" width="250"> | <img src="docs/screenshots/02-deep-empty.png" width="250"> | <img src="docs/screenshots/08-settings.png" width="250"> |
 
-The photos are SFW nature posts from a public profile. You can see real source errors in the status lines (Reddit JSON 403, RSS 429 and so on). That's normal, and it's why Hobee falls back across several sources.
+The photos are nature posts from a public profile. You can see real source errors in the status lines (Reddit JSON 403, RSS 429 and so on). That's normal, and it's why Hobee falls back across several sources.
 
 ## Install
 
-1. Download `Hobee-1.3.10-arm64.apk` from the [Releases](../../releases) page. It's the build for almost every phone from the last ~6 years (arm64-v8a).
+1. Download `Hobee-1.6.1.apk` from the [Releases](../../releases) page.
 2. Open it on your phone and allow "install unknown apps" for your browser or file manager.
 3. That's it. Deep Search works straight away without logging in.
-
-The APK is split per ABI because the universal one was over 25 MB. If you have an old 32-bit phone, build it yourself (see below).
 
 ## Build from source
 
@@ -96,10 +101,10 @@ cd hobee
 flutter pub get
 flutter analyze
 flutter test
-flutter build apk --release --split-per-abi --target-platform android-arm64
+flutter build apk --release
 ```
 
-The APK ends up in `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`.
+The APK ends up in `build/app/outputs/flutter-apk/app-release.apk`.
 
 **Signing:** `android/app/build.gradle.kts` signs the release with `android/key.properties` if that file exists, and falls back to the debug key otherwise. So a plain clone builds fine. To sign with your own key, create `android/key.properties`:
 
@@ -340,17 +345,19 @@ Some of what went wrong while building this. All of these actually happened.
 - **Profile posts missing.** Arctic Shift's author search misses posts that later got set to `[deleted]`. Adding a search of the `u_NAME` subreddit brought a lot of them back.
 - **Images flashing, then "media gone".** I had a size check that treated a 1-byte response as the real file, so live images got marked as removed. Fixed with proper status rules (404/410 = gone, 403/429/5xx = unsure).
 - **Load more skipped 62 posts.** The cursor took the oldest post across all archives, which jumped past posts another archive hadn't returned yet. Now it uses the newest of each provider's oldest.
-- **APK over 25 MB.** Too big to share easily, so the builds are now split per ABI.
+- **APK over 25 MB.** Older builds were split per ABI. Since the image enhancer was removed, one universal APK is small enough again.
 - **The bottom nav pill.** I fought with this layout for way too long: labels overflowing, a pill that wasn't centred, the highlight being the wrong size. In 1.3.6 it's icons only, with tooltips.
 - **Grey tiles with a reload icon (1.3.6).** Deep Search was full of them. I spent an evening curling every URL the app built and found the dumb part: my "is it alive" check asked for 1 byte with a Range header, and preview.redd.it says 206 to that even for deleted images. A normal GET says 404. So dead previews got cached as working, every image load failed, and the tile sat there with a reload icon that just tried the same dead links again. 1.3.7 checks properly, retries with a short backoff, shows "Image gone" when it really is gone, and the reload button now clears the cache and checks again. On 199 archive tiles from 4 real profiles: before, 34 were stuck on the reload icon; after, 1 was (159 load, 39 are truly gone).
 - **Same picture three times.** Deep Search merges Live, Arctic Shift and PullPush, and people repost. Dupes now also match on post id and on imgur ids with the size letter stripped, and the copy that stays is the best one (Live, then Archive, then Removed, then the biggest). The month counts only count what's shown.
 - **Everything loads, then nothing does (1.3.7).** Scroll Deep Search for a while and the tiles further down just stayed blank, images and videos both. Tapping each one got some to load and some not. My fault from 1.3.7: every tile ran a full "is this alive" check before even trying its image, and only 6 checks ran at a time, first come first served. One check can try five URLs plus the Wayback Machine, so a long scroll queued hundreds of checks for tiles that were already off screen, and the ones you were actually looking at waited at the back of the line. A stalled connection could also hold a slot for ages. In 1.3.8 a tile just loads its image straight away and only asks for a check if that fails, the queue serves what's on screen first and drops tiles you scrolled past, a check gives up after 25 seconds without calling the image gone, scrolling back to a tile tries again, and the image cache is bigger so thumbnails near the screen don't get thrown out. I wrote a test that scrolls through 400 tiles with a fake slow network to make sure the bottom ones still load.
+- **Picking an upscaler.** I wanted proper upscaling in the viewer, so I tested a bunch of projects on real Reddit pictures: Real-ESRGAN (three of its models), SwinIR, plus reading up on HAT, DAT, SPAN, Real-CUGAN, waifu2x, APISR, BSRGAN, GFPGAN, CodeFormer and the diffusion ones like SUPIR and StableSR. SwinIR looked about as good as Real-ESRGAN Ultra but took twice as long, HAT and DAT are even heavier, the diffusion ones need a real GPU, CodeFormer and APISR have licenses I can't ship in an MIT app, and a lot of the popular community models are non commercial. Real-ESRGAN won: BSD licensed code and weights, great results, and a tiny model that actually runs on a phone. I also tried running a second pass on top of the first for extra detail, and it mostly made up fake texture, so I didn't ship that.
 - **Can you "uncompress" a JPEG?** Not really. The Huffman part is lossless and every decoder already undoes it fully. What's gone is the rounding of each 8x8 block's numbers. But the file still says how big each rounding step was, so you can pick a smoother picture that still rounds to the exact same numbers. That's the idea behind Google's Knusperli and jpeg2png (no code taken from either). I also looked at learned JPEG cleanup models like FBCNN and SCUNet: nice results, but way too heavy and slow for a phone. WebP previews use a different codec with its own built in deblocking, so for those the best move is just fetching the original.
 - **Original quality.** I read through gallery-dl and bdfr to figure out the preview → i.redd.it and imgur suffix tricks.
 
 ## Changelog
 
-- **1.4.0**: Upscaling moved out of Hobee, so the app is a lot smaller. Pictures look cleaner instead: Reddit recompresses everything (even the "original" i.redd.it files come out around JPEG quality 80 with half size color), so Hobee now reads the JPEG's own stored data, smooths only within what the file allows (real grain and skin texture stay) and rebuilds the color using the brightness edges, so reds stop bleeding. On in the viewer and for saved pictures, which now save as a cleaned PNG by default (Settings has Clean up compression and Save the original file). Still metadata free with date based names. Phone photos with a rotation flag no longer come out sideways.
+- **1.6.1**: Deep search pages through full history. Tappable usernames and a Users view. Keyword relevance search. Crash fixes and a safe mode. Dead images are hidden. The next page loads automatically. Faster duplicate removal and parallel fetching. The image enhancer is removed. Suggestions and search are simpler, with no filter panels.
+- **1.3.12**: Cleaner pictures before upscaling. Reddit recompresses uploads (even the "original" i.redd.it files come out around JPEG quality 80 with half size color), and the upscaler used to blow up the blocks and the blocky, bleeding reds. Now Hobee reads the JPEG's own stored data (the quant tables and the DCT numbers per 8x8 block), smooths only within the range the file allows, so real grain and skin texture stay, and rebuilds the color layer using the brightness edges so reds stop smearing. Upscaling also always grabs the original upload, even with Original quality off, and phone photos with a rotation flag no longer come out sideways.
 - **1.3.11**: Upscaler overhaul. New Fast and Ultra models that are faster and keep colors and skin tones true, runs on the phone's NPU or GPU when it can, a time estimate in the picker, Natural or Sharp look, Restore color and Film grain options, and automatic cleanup for heavily compressed JPEGs.
 - **1.3.10**: Clean downloads. Single, gallery and upscaled saves drop EXIF (including GPS and software tags), XMP, IPTC and comments from JPEG, PNG, WebP and GIF. Only the ICC color profile is kept. No camera or device info is ever written. Files are named by save time (for example `20261025_233900.jpg`) and go to plain `Pictures` and `Movies` folders. Toggle in Settings, on by default. Videos are not changed. Also fixes the upscaler crash from 1.3.9 ("object is unsendable" red screen when tapping Upscale): the background work now only gets plain image data, and errors show a short message with a Retry button.
 - **1.3.9**: On-device image upscaling with Real-ESRGAN.

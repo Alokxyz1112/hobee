@@ -64,6 +64,7 @@ class _ArchiveImageState extends State<ArchiveImage> {
       builder: (ctx, s) {
         if (s.hasError) return GestureDetector(onTap: _recheck, child: _box(context, const Icon(Icons.refresh)));
         if (s.connectionState != ConnectionState.done) return _box(context, null);
+        if (s.data == null) WidgetsBinding.instance.addPostFrameCallback((_) => MediaCheck.markGone(widget.post.id));
         return s.data == null ? GestureDetector(onTap: _recheck, child: const MediaGone()) : _img(s.data!);
       },
     );
@@ -72,7 +73,7 @@ class _ArchiveImageState extends State<ArchiveImage> {
   Widget _img(String u) => u.isEmpty
       ? _box(context, const Icon(Icons.movie))
       : FallbackImage(urls: [u, _raw, widget.item.thumb, ?widget.item.preview], fit: widget.fit, cacheWidth: widget.cacheWidth,
-          onAllGone: widget.deep ? () => MediaCheck.markGone(widget.post.id) : null);
+          onAllGone: () => MediaCheck.markGone(widget.post.id));
 
   Widget _box(BuildContext c, Widget? child) => Container(color: Theme.of(c).colorScheme.surfaceContainerHighest, alignment: Alignment.center, child: child);
 }
@@ -91,7 +92,7 @@ class FallbackImage extends StatefulWidget {
   State<FallbackImage> createState() => _FallbackImageState();
 }
 
-const imageHeaders = {'User-Agent': 'android:com.alok.hobee:v$appVersion (personal gallery app)'};
+const imageHeaders = {'User-Agent': 'android:com.alok.hobee:v$appVersion (gallery app)'};
 const _autoRetries = 2;
 
 class _FallbackImageState extends State<FallbackImage> {
@@ -119,7 +120,7 @@ class _FallbackImageState extends State<FallbackImage> {
   void _failed(String url, Object err) {
     if (!_handled.add('$url#$_retry') || _i >= _urls.length || _urls[_i] != url) return;
     final code = err is NetworkImageLoadException ? err.statusCode : 0;
-    if (code != 404 && code != 410) _soft = true;
+    if (code != 404 && code != 410 && code != 403) _soft = true;
     _i++;
     if (_i >= _urls.length && widget.onExhausted != null) {
       widget.onExhausted!();
@@ -128,7 +129,8 @@ class _FallbackImageState extends State<FallbackImage> {
     if (_i >= _urls.length) {
       if (_soft && _retry < _autoRetries) {
         Future.delayed(Duration(seconds: 2 << _retry), () { if (mounted && _i >= _urls.length) _again(); });
-      } else if (!_soft) {
+      } else {
+        // Deleted, or still broken after retries: a dead tile is just an empty box, so let the grid drop it.
         widget.onAllGone?.call();
       }
     }
@@ -169,7 +171,7 @@ class MediaGone extends StatelessWidget {
       alignment: Alignment.center,
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Icon(Icons.image_not_supported_outlined, color: cs.onSurfaceVariant),
-        Text('Image gone', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+        Text('Removed', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
       ]),
     );
   }

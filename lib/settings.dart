@@ -1,3 +1,7 @@
+import 'filters.dart';
+import 'viewed.dart';
+import 'crash_log.dart';
+import 'player.dart';
 import 'clean.dart';
 import 'clean_image.dart';
 import 'package:flutter/material.dart';
@@ -177,6 +181,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         const Divider(),
+        ListTile(
+          leading: const Icon(Icons.healing_outlined),
+          title: const Text('Safe mode: reset search state'),
+          subtitle: const Text('Clears saved searches, filters and dates if something keeps breaking. Posts, history and settings stay.'),
+          onTap: () async {
+            await resetSearchState();
+            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Search state reset')));
+          },
+        ),
+        ValueListenableBuilder(
+          valueListenable: Viewed.names,
+          builder: (_, v, _) => ListTile(
+            leading: const Icon(Icons.visibility_off_outlined),
+            title: const Text('Clear viewed users'),
+            subtitle: Text(v.isEmpty ? 'No viewed users. Profiles opened from subreddit results get hidden there.' : '${v.length} hidden from subreddit results'),
+            onTap: v.isEmpty ? null : () {
+              Viewed.clear();
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Viewed users cleared')));
+            },
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.bug_report_outlined),
+          title: const Text('Crash log'),
+          subtitle: const Text('Errors saved on this phone. View or copy to share.'),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CrashLogScreen())),
+        ),
+        ValueListenableBuilder(
+          valueListenable: VideoPrefs.startMuted,
+          builder: (_, on, _) => SwitchListTile(
+            title: const Text('Start videos muted'),
+            subtitle: const Text('Off: videos play with sound. The mute button in the player remembers your pick.'),
+            value: on,
+            onChanged: (v) => VideoPrefs.startMuted.value = v,
+          ),
+        ),
         ValueListenableBuilder(
           valueListenable: originalQuality,
           builder: (_, on, _) => SwitchListTile(
@@ -272,7 +312,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         const ListTile(
           leading: Icon(Icons.info_outline),
-          title: Text('Hobee v$appVersion'),
+          title: Text('Hobee $appVersion'),
           subtitle: Text('No ads, no analytics, no tracking. Downloads go to Pictures and Movies.'),
         ),
       ]),

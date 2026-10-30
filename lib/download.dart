@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/foundation.dart';
 import 'clean.dart';
 import 'clean_image.dart';
+import 'embeds.dart';
 import 'models.dart';
 
 const _ch = MethodChannel('hobee/media');
@@ -59,11 +60,20 @@ class Downloader {
     if (m.type == MediaType.video) {
       final best = m.redditVideo ? await _bestDash(m.url) : null;
       File video;
+      var src = m.url;
+      if (Embeds.needsResolve(src)) {
+        try {
+          src = await Embeds.playable(src);
+        } catch (_) {
+          if (m.preview == null) rethrow;
+          src = m.preview!;
+        }
+      }
       try {
-        video = await _fetch(best ?? m.url, 'v_$ts.mp4');
+        video = await _fetch(best ?? src, 'v_$ts.mp4');
       } catch (_) {
         if (best == null) rethrow;
-        video = await _fetch(m.url, 'v_$ts.mp4');
+        video = await _fetch(src, 'v_$ts.mp4');
       }
       File out = video;
       if (m.redditVideo) {
@@ -112,6 +122,32 @@ class Downloader {
       final r = await _ch.invokeMethod<String>('save', {'path': f.path, 'name': name, 'mime': _mime(ext), 'video': false});
       return r ?? name;
     }
+  }
+
+  /// Saves a file that's already on the phone (upscaled PNG) to Pictures, cleaned like any download.
+  static Future<String> saveFile(String path, String ext, String mime) async {
+    await _perm();
+    final name = timestampName(DateTime.now(), ext);
+    path = (await _clean(File(path))).path;
+    final r = await _ch.invokeMethod<String>('save', {'path': path, 'name': name, 'mime': mime, 'video': false});
+    return r ?? name;
+  }
+
+  /// Fetches image bytes for the upscaler: the original first, then the preview copy.
+  static Future<Uint8List> imageBytes(MediaItem m) async {
+    Object? err;
+    // Always the original upload first, even with Original quality off: the preview is resized and recompressed.
+    for (final u in {m.url, ?m.preview}) {
+      if (!u.startsWith('http')) continue;
+      try {
+        final r = await http.get(Uri.parse(u), headers: {'User-Agent': 'android:com.alok.hobee:v1.0'});
+        if (r.statusCode == 200 && r.bodyBytes.length > 2048) return r.bodyBytes;
+        err = Exception('HTTP ${r.statusCode}');
+      } catch (e) {
+        err = e;
+      }
+    }
+    throw err ?? Exception('No image to upscale');
   }
 
   /// Highest-bandwidth video representation from v.redd.it's DASHPlaylist.mpd (fallback_url is not always the top one).

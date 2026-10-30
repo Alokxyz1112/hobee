@@ -2,16 +2,18 @@ import 'package:flutter/material.dart';
 import 'glass.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:video_player/video_player.dart';
+import 'accounts.dart';
 import 'archive.dart';
 import 'archive_ui.dart';
 import 'clean_image.dart';
 import 'download.dart';
 import 'filters.dart';
 import 'models.dart';
+import 'player.dart';
 import 'source_bar.dart';
+import 'sub_users.dart';
 
-const viewerUserAgent = 'android:com.alok.hobee:v$appVersion (personal gallery app)';
+const viewerUserAgent = 'android:com.alok.hobee:v$appVersion (gallery app)';
 
 class Entry {
   final Post post;
@@ -42,6 +44,7 @@ class _ViewerState extends State<Viewer> {
   void initState() {
     super.initState();
     markRead(widget.entries[widget.start].post.id);
+    Interest.opened(widget.entries[widget.start].post);
   }
 
   Future<void> _download({bool all = false}) async {
@@ -54,6 +57,7 @@ class _ViewerState extends State<Viewer> {
       try {
         await Downloader.save(it, 'hobee_${e.post.id}');
         ok++;
+        if (ok == 1) Interest.downloaded(e.post);
       } catch (err) {
         m.showSnackBar(SnackBar(content: Text('Failed: $err')));
       }
@@ -77,6 +81,7 @@ class _ViewerState extends State<Viewer> {
               foregroundColor: Colors.white,
               title: Text(e.post.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
               actions: [
+                if (e.item.type == MediaType.image)
                 IconButton(icon: const Icon(Icons.download), tooltip: 'Download', onPressed: () => _download()),
                 if (e.post.media.length > 1)
                   IconButton(icon: const Icon(Icons.download_for_offline), tooltip: 'Download all', onPressed: () => _download(all: true)),
@@ -92,7 +97,7 @@ class _ViewerState extends State<Viewer> {
           PageView.builder(
             controller: pc,
             itemCount: widget.entries.length,
-            onPageChanged: (i) { markRead(widget.entries[i].post.id); setState(() => cur = i); },
+            onPageChanged: (i) { markRead(widget.entries[i].post.id); if (widget.entries[i].post.id != widget.entries[cur].post.id) Interest.opened(widget.entries[i].post); setState(() => cur = i); },
             itemBuilder: (_, i) {
               final it = widget.entries[i].item;
               if (it.type == MediaType.video) return VideoPage(item: it, active: i == cur);
@@ -118,100 +123,18 @@ class _ViewerState extends State<Viewer> {
                 border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.15))),
                 child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
-                child: Text(
-                  'r/${e.post.subreddit} • u/${e.post.author} • ${e.post.date.toLocal().toString().substring(0, 10)}'
-                  '${e.post.media.length > 1 ? '  •  ${e.index + 1}/${e.post.media.length}' : ''}',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                  AuthorChip(e.post.author),
+                  const SizedBox(height: 6),
+                  Text('r/${e.post.subreddit} • ${e.post.date.toLocal().toString().substring(0, 10)}'
+                      '${e.post.media.length > 1 ? '  •  ${e.index + 1}/${e.post.media.length}' : ''}',
+                      style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                ]),
               )),
             ),
         ]),
       ),
     );
-  }
-}
-
-class VideoPage extends StatefulWidget {
-  final MediaItem item;
-  final bool active;
-  const VideoPage({super.key, required this.item, required this.active});
-  @override
-  State<VideoPage> createState() => _VideoPageState();
-}
-
-class _VideoPageState extends State<VideoPage> {
-  VideoPlayerController? c;
-  String? err;
-
-  @override
-  void initState() {
-    super.initState();
-    _init();
-  }
-
-  Future<void> _init() async {
-    final hls = widget.item.hls;
-    // HLS playlist includes the audio track; fallback mp4 is video-only for reddit videos.
-    final ctrl = hls != null
-        ? VideoPlayerController.networkUrl(Uri.parse(hls), formatHint: VideoFormat.hls)
-        : VideoPlayerController.networkUrl(Uri.parse(widget.item.url));
-    try {
-      await ctrl.initialize();
-      await ctrl.setLooping(true);
-      if (widget.active) await ctrl.play();
-      if (mounted) {
-        setState(() => c = ctrl);
-      } else {
-        ctrl.dispose();
-      }
-    } catch (e) {
-      if (mounted) setState(() => err = '$e');
-    }
-  }
-
-  @override
-  void didUpdateWidget(VideoPage old) {
-    super.didUpdateWidget(old);
-    if (c == null) return;
-    widget.active ? c!.play() : c!.pause();
-  }
-
-  @override
-  void dispose() {
-    c?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (err != null) return Center(child: Text('Video error\n$err', style: const TextStyle(color: Colors.white70), textAlign: TextAlign.center));
-    final v = c;
-    if (v == null) return const Center(child: CircularProgressIndicator());
-    return Stack(alignment: Alignment.center, children: [
-      InteractiveViewer(maxScale: 4, child: Center(child: AspectRatio(aspectRatio: v.value.aspectRatio, child: VideoPlayer(v)))),
-      Positioned(
-        bottom: 60, left: 8, right: 8,
-        child: Row(children: [
-          ValueListenableBuilder(
-            valueListenable: v,
-            builder: (_, val, _) => IconButton(
-              color: Colors.white,
-              icon: Icon(val.isPlaying ? Icons.pause : Icons.play_arrow),
-              onPressed: () => val.isPlaying ? v.pause() : v.play(),
-            ),
-          ),
-          Expanded(child: VideoProgressIndicator(v, allowScrubbing: true, colors: const VideoProgressColors(playedColor: Color(0xFFE53935)))),
-          ValueListenableBuilder(
-            valueListenable: v,
-            builder: (_, val, _) => IconButton(
-              color: Colors.white,
-              icon: Icon(val.volume == 0 ? Icons.volume_off : Icons.volume_up),
-              onPressed: () => v.setVolume(val.volume == 0 ? 1 : 0),
-            ),
-          ),
-        ]),
-      ),
-    ]);
   }
 }
 
@@ -300,13 +223,14 @@ class PhotoFallbackState extends State<PhotoFallback> {
   Widget build(BuildContext context) {
     final us = urls;
     if (i >= us.length) {
+      final removed = failures.isNotEmpty && failures.every((f) => f.endsWith('HTTP 404') || f.endsWith('HTTP 410'));
       return GestureDetector(
         onLongPress: _showDebug,
         child: Center(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), tooltip: 'Retry', onPressed: retry),
             const SizedBox(height: 4),
-            Text(us.isEmpty ? 'No image URL for this post' : 'Couldn\'t load image (${failures.isNotEmpty ? failures.last.split(' → ').last : 'error'})',
+            Text(us.isEmpty ? 'No image URL for this post' : removed ? 'Removed' : 'Couldn\'t load image (${failures.isNotEmpty ? failures.last.split(' → ').last : 'error'})',
                 style: const TextStyle(color: Colors.white54, fontSize: 12)),
             const Text('Long-press for details', style: TextStyle(color: Colors.white30, fontSize: 11)),
           ]),

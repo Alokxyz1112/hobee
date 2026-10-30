@@ -1,4 +1,12 @@
+import 'package:flutter/foundation.dart' show compute;
+import 'relevance.dart';
+import 'viewed.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'archive.dart';
 import 'clean.dart';
+import 'find.dart';
+import 'find_ui.dart';
 import 'clean_image.dart';
 import 'package:flutter/material.dart';
 import 'glass.dart';
@@ -8,8 +16,9 @@ import 'db.dart';
 import 'models.dart';
 import 'source_bar.dart';
 import 'nav.dart';
+import 'sub_search.dart';
 
-enum MediaFilter { all, images, videos, galleries, text }
+enum MediaFilter { all, images, videos, galleries, text, links, documents }
 
 const mediaFilterLabels = {
   MediaFilter.all: 'All',
@@ -17,7 +26,28 @@ const mediaFilterLabels = {
   MediaFilter.videos: 'Videos',
   MediaFilter.galleries: 'Galleries',
   MediaFilter.text: 'Text',
+  MediaFilter.links: 'Links',
+  MediaFilter.documents: 'Docs',
 };
+
+const mediaFilterIcons = {
+  MediaFilter.all: Icons.all_inclusive,
+  MediaFilter.images: Icons.image_outlined,
+  MediaFilter.videos: Icons.play_circle_outline,
+  MediaFilter.galleries: Icons.collections_outlined,
+  MediaFilter.text: Icons.notes,
+  MediaFilter.links: Icons.link,
+  MediaFilter.documents: Icons.description_outlined,
+};
+
+/// Filters whose posts have no media (they show in Card / Compact, not the grid).
+bool get textish => const {MediaFilter.text, MediaFilter.links, MediaFilter.documents}.contains(mediaFilter.value);
+
+/// Live / Archive / Removed (Deep Search). Empty = any.
+final statusFilter = ValueNotifier<Set<PostStatus>>({});
+
+/// Per chip result counts for the current list (MediaFilter or PostStatus -> n).
+final chipCounts = ValueNotifier<Map<Object, int>>({});
 
 const sorts = ['best', 'hot', 'new', 'top', 'rising', 'controversial'];
 const sortTimes = ['hour', 'day', 'week', 'month', 'year', 'all'];
@@ -33,7 +63,7 @@ final readIds = <String>{};
 final hideDupes = ValueNotifier<bool>(false);
 final hideDupesDeep = ValueNotifier<bool>(true);
 /// Deep Search: hide tiles whose image is gone everywhere instead of showing 'Image gone'.
-final hideGone = ValueNotifier<bool>(false);
+final hideGone = ValueNotifier<bool>(true);
 bool get dupesOn => currentSource.value.startsWith('deep:') ? hideDupesDeep.value : hideDupes.value;
 ValueNotifier<bool> get dupesNotifier => currentSource.value.startsWith('deep:') ? hideDupesDeep : hideDupes;
 
@@ -49,11 +79,149 @@ void markRead(String id) {
 bool get sortable => currentSource.value == 'home' || currentSource.value.startsWith('r/') || currentSource.value.startsWith('u/');
 
 /// Fires when anything affecting what is displayed (but not what is fetched) changes.
-final viewFilters = Listenable.merge([mediaFilter, dateRange, searchQuery, hideRead, hideDupes, hideDupesDeep, hideGone]);
+/// Sort by relevance while a keyword is present.
+final relevanceSort = ValueNotifier<bool>(true);
+
+/// Relevance ranking for the current source and query. Small sets rank inline; big ones in an isolate.
+class Rel {
+  static final ready = ValueNotifier<int>(0);
+  static String _key = '';
+  static Map<String, RHit>? _hits;
+  static String? _pending;
+  static bool active = false;
+
+  static RQuery sourceQuery() {
+    final s = currentSource.value;
+    return isSubSearch(s) ? parseQuery(subParts(s).q) : RQuery.empty;
+  }
+
+  static String queryText() {
+    final s = currentSource.value;
+    return [if (isSubSearch(s)) subParts(s).q, searchQuery.value].where((x) => x.trim().isNotEmpty).join(' ');
+  }
+
+  static RHit? hitOf(String id) => active ? (_hits == null ? null : _hits![id]) : null;
+
+  static RDoc docOf(Post p) {
+    String s(Object? o) => o is String ? o : '';
+    final url = s(p.raw['url_overridden_by_dest'] ?? p.raw['url']);
+    return RDoc([
+      p.title,
+      '${s(p.raw['link_flair_text'])} ${s(p.raw['author_flair_text'])}',
+      s(p.raw['selftext']),
+      url.contains('/comments/') ? '' : '${s(p.raw['domain'])} ${Uri.tryParse(url)?.path ?? ''}',
+      p.subreddit,
+    ], p.author, p.created, (p.raw['score'] as num?)?.toInt() ?? 0);
+  }
+
+  static Map<String, RHit>? hitsFor(List<Post> all) {
+    final qs = queryText();
+    if (qs.isEmpty || parseQuery(qs).isEmpty) { active = false; return null; }
+    final key = '$qs|${identityHashCode(all)}|${all.length}';
+    if (key == _key) { active = true; return _hits; }
+    Map<String, RHit> byId(Map<int, RHit> r) => {for (final e in r.entries) all[e.key].id: e.value};
+    if (all.length <= 1500) {
+      _key = key;
+      _hits = byId(rankDocs([for (final p in all) docOf(p)], parseQuery(qs)));
+      active = true;
+      return _hits;
+    }
+    if (_pending != key) {
+      _pending = key;
+      final docs = [for (final p in all) docOf(p)];
+      compute(rankJob, (docs, qs)).then((r) {
+        if (_pending != key) return;
+        _pending = null;
+        _key = key;
+        _hits = byId(r);
+        ready.value++;
+      });
+    }
+    active = false;
+    return null; // plain matching until the ranked list is ready
+  }
+}
+
+final viewFilters = Listenable.merge([relevanceSort, Rel.ready, mediaFilter, statusFilter, dateRange, searchQuery, hideRead, hideDupes, hideDupesDeep, hideGone, srSort]);
+
+// ---- filters remembered per screen (home feeds vs Deep Search) ----
+String _scope = 'main';
+DateTimeRange? _pendingDeep;
+
+/// Pre-set the Deep Search date filter (used by time-window suggestions).
+void presetDeepRange(DateTimeRange r) {
+  if (_scope == 'deep') {
+    dateRange.value = r;
+  } else {
+    _pendingDeep = r;
+  }
+}
+String _scopeOf(String src) => src.startsWith('deep:') ? 'deep' : 'main';
+
+void _saveScope(SharedPreferences sp, String scope) {
+  final r = dateRange.value;
+  sp.setString('filters.$scope', jsonEncode({
+    'm': mediaFilter.value.index,
+    'q': searchQuery.value,
+    'st': [for (final x in statusFilter.value) x.index],
+    if (r != null) 'd': [r.start.millisecondsSinceEpoch, r.end.millisecondsSinceEpoch],
+  }));
+}
+
+void _loadScope(SharedPreferences sp, String scope) {
+  // Saved filters are untrusted: any bad value resets that scope instead of crashing (the app must always open).
+  MediaFilter m = MediaFilter.all;
+  String q = '';
+  Set<PostStatus> st = {};
+  DateTimeRange? r;
+  try {
+    final raw = jsonDecode(sp.getString('filters.$scope') ?? '{}');
+    final j = raw is Map ? raw : const {};
+    final mi = j['m'] is int ? j['m'] as int : (scope == 'main' ? sp.getInt('mediaFilter') ?? 0 : 0);
+    m = MediaFilter.values[mi.clamp(0, MediaFilter.values.length - 1)];
+    q = j['q'] is String ? j['q'] as String : '';
+    st = {for (final i in (j['st'] is List ? j['st'] as List : const [])) if (i is int) PostStatus.values[i.clamp(0, PostStatus.values.length - 1)]};
+    final d = j['d'];
+    if (d is List && d.length == 2 && d[0] is int && d[1] is int && (d[0] as int) <= (d[1] as int)) {
+      r = DateTimeRange(start: DateTime.fromMillisecondsSinceEpoch(d[0] as int), end: DateTime.fromMillisecondsSinceEpoch(d[1] as int));
+    }
+  } catch (_) {
+    sp.remove('filters.$scope');
+  }
+  mediaFilter.value = m;
+  searchQuery.value = q;
+  statusFilter.value = st;
+  dateRange.value = r;
+}
+
+/// Safe mode: wipe every saved search/filter state so nothing restored can break the app.
+Future<void> resetSearchState() async {
+  final sp = _sp ?? await SharedPreferences.getInstance();
+  for (final k in sp.getKeys().toList()) {
+    if (k.startsWith('filters.') || k == 'mediaFilter' || k == 'subSort') await sp.remove(k);
+  }
+  restoringFilters = false;
+  relevanceSort.value = false;
+  mediaFilter.value = MediaFilter.all;
+  searchQuery.value = '';
+  statusFilter.value = {};
+  dateRange.value = null;
+}
+
+bool get anyFilter => mediaFilter.value != MediaFilter.all || searchQuery.value.isNotEmpty || statusFilter.value.isNotEmpty || dateRange.value != null;
+
+/// True while filters are being put back after a profile; listeners must not refetch.
+bool restoringFilters = false;
+
+void clearFilters() {
+  mediaFilter.value = MediaFilter.all;
+  searchQuery.value = '';
+  statusFilter.value = {};
+  dateRange.value = null;
+}
 
 Future<void> loadFilterPrefs() async {
   final sp = await SharedPreferences.getInstance();
-  mediaFilter.value = MediaFilter.values[(sp.getInt('mediaFilter') ?? 0).clamp(0, MediaFilter.values.length - 1)];
   _sp = sp;
   subSort.value = sp.getString('subSort') ?? 'new';
   hideRead.value = sp.getBool('hideRead') ?? false;
@@ -67,7 +235,7 @@ Future<void> loadFilterPrefs() async {
   originalQuality.addListener(() => sp.setBool('originalQuality', originalQuality.value));
   hideDupes.value = sp.getBool('hideDupes') ?? false;
   hideDupesDeep.value = sp.getBool('hideDupesDeep') ?? true;
-  hideGone.value = sp.getBool('hideGone') ?? false;
+  hideGone.value = sp.getBool('hideGone') ?? true;
   hideGone.addListener(() => sp.setBool('hideGone', hideGone.value));
   hideDupes.addListener(() => sp.setBool('hideDupes', hideDupes.value));
   hideDupesDeep.addListener(() => sp.setBool('hideDupesDeep', hideDupesDeep.value));
@@ -75,7 +243,22 @@ Future<void> loadFilterPrefs() async {
   postLayout.value = PostLayout.values[(sp.getInt('postLayout') ?? 3).clamp(0, 3)];
   hideRead.addListener(() => sp.setBool('hideRead', hideRead.value));
   postLayout.addListener(() => sp.setInt('postLayout', postLayout.value.index));
-  mediaFilter.addListener(() => sp.setInt('mediaFilter', mediaFilter.value.index));
+  _scope = _scopeOf(currentSource.value);
+  _loadScope(sp, _scope);
+  currentSource.addListener(() {
+    final s = _scopeOf(currentSource.value);
+    if (s == _scope) return;
+    _saveScope(sp, _scope);
+    _scope = s;
+    _loadScope(sp, s);
+    if (s == 'deep' && _pendingDeep != null) {
+      dateRange.value = _pendingDeep;
+      _pendingDeep = null;
+    }
+  });
+  for (final n in [mediaFilter, statusFilter, dateRange, searchQuery]) {
+    n.addListener(() => _saveScope(sp, _scope));
+  }
   subSort.addListener(() => sp.setString('subSort', subSort.value));
 }
 
@@ -100,24 +283,82 @@ MediaFilter kindOf(Post p) {
   return MediaFilter.images;
 }
 
-bool matches(Post p) {
-  final f = mediaFilter.value;
-  if (f == MediaFilter.text) {
-    if (p.media.isNotEmpty) return false;
-  } else {
-    if (p.media.isEmpty) return false;
-    if (f != MediaFilter.all && kindOf(p) != f) return false;
+bool kindMatches(Post p, MediaFilter f) => switch (f) {
+      MediaFilter.all => p.media.isNotEmpty,
+      MediaFilter.images || MediaFilter.videos || MediaFilter.galleries => p.media.isNotEmpty && kindOf(p) == f,
+      MediaFilter.text => p.media.isEmpty && !isDocument(p) && !isLink(p),
+      MediaFilter.links => isLink(p),
+      MediaFilter.documents => isDocument(p),
+    };
+
+String _tq = '';
+List<String> _terms = const [];
+List<String> get searchTerms {
+  final q = Rel.queryText();
+  if (_tq != q) {
+    _tq = q;
+    final r = parseQuery(q);
+    _terms = r.highlight.isEmpty && q.isNotEmpty && r.author == null && r.sub == null ? queryTerms(q) : r.highlight;
   }
+  return _terms;
+}
+
+/// Everything except the type and status chips: read, date and the search text.
+bool baseMatches(Post p, {bool text = true}) {
   if (hideRead.value && readIds.contains(p.id)) return false;
   final r = dateRange.value;
   if (r != null) {
     final d = p.date.toLocal();
     if (d.isBefore(r.start) || !d.isBefore(r.end.add(const Duration(days: 1)))) return false;
   }
-  final q = searchQuery.value.trim().toLowerCase();
-  if (q.isNotEmpty && !p.title.toLowerCase().contains(q) && !p.subreddit.toLowerCase().contains(q)) return false;
-  return true;
+  return !text || textMatches(p, searchTerms);
 }
+
+bool _statusOk(Post p, bool deep) => !deep || statusFilter.value.isEmpty || statusFilter.value.contains(statusOf(p));
+
+bool matches(Post p) {
+  if (!kindMatches(p, mediaFilter.value)) return false;
+  if (!_statusOk(p, isDeep(currentSource.value))) return false;
+  return baseMatches(p);
+}
+
+/// Counts for every chip given the other active filters; published to [chipCounts].
+void publishCounts(List<Post> all) => filterAndCount(all);
+
+/// One pass: publishes chip counts and returns the posts that match every filter.
+/// (Was two passes per change, each running the typo matcher over every post.)
+List<Post> filterAndCount(List<Post> all) {
+  final deep = isDeep(currentSource.value);
+  final sr = isSubSearch(currentSource.value);
+  final hv = Viewed.hide.value;
+  final hits = Rel.hitsFor(all);
+  final mf = mediaFilter.value;
+  final c = <Object, int>{};
+  final out = <Post>[];
+  for (final p in all) {
+    if (sr && !subOk(p)) continue;
+    if (sr && hv && Viewed.has(p.author)) continue;
+    if (hits != null && !hits.containsKey(p.id)) continue;
+    if (!baseMatches(p, text: hits == null)) continue;
+    final st = _statusOk(p, deep);
+    if (st && kindMatches(p, mf)) out.add(p);
+    if (st) {
+      for (final f in MediaFilter.values) {
+        if (kindMatches(p, f)) c[f] = (c[f] ?? 0) + 1;
+      }
+    }
+    if (deep && kindMatches(p, mediaFilter.value)) {
+      final s = statusOf(p);
+      c[s] = (c[s] ?? 0) + 1;
+    }
+  }
+  if (!_sameCounts(chipCounts.value, c)) chipCounts.value = c;
+  if (sr) srSortList(out);
+  if (hits != null && relevanceSort.value) out.sort((a, b) => (hits[b.id]?.score ?? 0).compareTo(hits[a.id]?.score ?? 0));
+  return out;
+}
+
+bool _sameCounts(Map<Object, int> a, Map<Object, int> b) => a.length == b.length && a.entries.every((e) => b[e.key] == e.value);
 
 /// Pages older listings until the oldest cached post is older than [start], or the listing ends.
 /// Returns null on success or an error string.
@@ -187,65 +428,98 @@ class FilterBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return ListenableBuilder(
-      listenable: Listenable.merge([viewFilters, subSort, currentSource]),
+      listenable: Listenable.merge([viewFilters, subSort, currentSource, chipCounts]),
       builder: (_, _) {
         final r = dateRange.value;
-        final q = searchQuery.value;
-        final isSub = sortable;
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          child: Row(children: [
-            Glass(
-              radius: BorderRadius.circular(20),
-              child: SegmentedButton<MediaFilter>(
-              showSelectedIcon: false,
-              style: ButtonStyle(
-                visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                backgroundColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected) ? cs.primary.withValues(alpha: 0.22) : Colors.transparent),
-                side: WidgetStatePropertyAll(BorderSide(color: glassEdge(context))),
-              ),
-              segments: [
-                for (final f in MediaFilter.values) ButtonSegment(value: f, label: Text(mediaFilterLabels[f]!)),
-              ],
-              selected: {mediaFilter.value},
-              onSelectionChanged: (s) => mediaFilter.value = s.first,
-            ),
-            ),
-            const SizedBox(width: 6),
-            if (r != null)
-              Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: InputChip(
-                  avatar: Icon(Icons.date_range, size: 16, color: cs.primary),
-                  label: Text('${_d(r.start)} to ${_d(r.end)}'),
+        final deep = isDeep(currentSource.value);
+        final n = chipCounts.value;
+        String lbl(String t, Object k) => n.isEmpty ? t : '$t ${n[k] ?? 0}';
+        return Column(children: [
+          SizedBox(
+            height: 48,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 4, 4),
+              child: Row(children: [
+                const Expanded(child: InstantSearchField()),
+                IconButton(
+                  icon: Icon(Icons.date_range, color: r != null ? cs.primary : null),
+                  tooltip: r == null ? 'Filter by date' : '${_d(r.start)} to ${_d(r.end)}',
+                  visualDensity: VisualDensity.compact,
                   onPressed: () => _pickDate(context),
-                  onDeleted: () => dateRange.value = null,
                 ),
-              )
-            else
-              IconButton(icon: const Icon(Icons.date_range), tooltip: 'Filter by date', visualDensity: VisualDensity.compact, onPressed: () => _pickDate(context)),
-            if (q.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: InputChip(
-                  avatar: Icon(Icons.search, size: 16, color: cs.primary),
-                  label: Text('"$q"'),
-                  onPressed: () => _search(context),
-                  onDeleted: () => searchQuery.value = '',
+                IconButton(
+                  icon: const Icon(Icons.image_search),
+                  tooltip: 'Find this photo',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => findPhotoFromPicker(context),
                 ),
-              )
-            else
-              IconButton(icon: const Icon(Icons.search), tooltip: 'Search', visualDensity: VisualDensity.compact, onPressed: () => _search(context)),
-            if (isSub)
-              ActionChip(
-                avatar: Icon(Icons.sort, size: 16, color: cs.primary),
-                label: Text(sortLabel(subSort.value)),
-                onPressed: () => _sort(context),
-              ),
-          ]),
-        );
+                IconButton(
+                  icon: const Icon(Icons.travel_explore),
+                  tooltip: 'Search everything saved',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => Navigator.push(context, fadeRoute(const CacheSearchScreen())),
+                ),
+                if (anyFilter)
+                  IconButton(icon: const Icon(Icons.filter_alt_off_outlined), tooltip: 'Clear all', visualDensity: VisualDensity.compact, onPressed: clearFilters),
+              ]),
+            ),
+          ),
+          SizedBox(
+            height: 44,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              children: [
+                if (sortable)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ActionChip(
+                      avatar: Icon(Icons.sort, size: 16, color: cs.primary),
+                      label: Text(sortLabel(subSort.value)),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _sort(context),
+                    ),
+                  ),
+                if (r != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: InputChip(
+                      avatar: Icon(Icons.date_range, size: 16, color: cs.primary),
+                      label: Text('${_d(r.start)} to ${_d(r.end)}'),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _pickDate(context),
+                      onDeleted: () => dateRange.value = null,
+                    ),
+                  ),
+                for (final f in MediaFilter.values)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      label: Text(lbl(mediaFilterLabels[f]!, f)),
+                      avatar: Icon(mediaFilterIcons[f], size: 16),
+                      showCheckmark: false,
+                      visualDensity: VisualDensity.compact,
+                      selected: mediaFilter.value == f,
+                      onSelected: (_) => mediaFilter.value = f,
+                    ),
+                  ),
+                if (deep) ...[
+                  const SizedBox(width: 6),
+                  for (final st in PostStatus.values)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: FilterChip(
+                        label: Text(lbl(statusLabels[st]!, st)),
+                        visualDensity: VisualDensity.compact,
+                        selected: statusFilter.value.contains(st),
+                        onSelected: (v) => statusFilter.value = v ? {...statusFilter.value, st} : ({...statusFilter.value}..remove(st)),
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ),
+        ]);
       },
     );
   }
@@ -256,11 +530,11 @@ class SourceAndFilterBar extends StatelessWidget implements PreferredSizeWidget 
   final bool sources;
   const SourceAndFilterBar({super.key, this.sources = true});
   @override
-  Size get preferredSize => Size.fromHeight(sources ? 100 : 52);
+  Size get preferredSize => Size.fromHeight(sources ? 140 : 92);
   @override
   Widget build(BuildContext context) => Column(children: [
         if (sources) const SizedBox(height: 48, child: SourceBar()),
-        const SizedBox(height: 52, child: FilterBar()),
+        const SizedBox(height: 92, child: FilterBar()),
       ]);
 }
 
@@ -347,14 +621,8 @@ Future<void> showFilterSheet(BuildContext context) => _sheet(context, (ctx) => L
         final r = dateRange.value;
         return Column(children: [
           Padding(padding: const EdgeInsets.only(bottom: 12), child: Text('Filter Posts', style: Theme.of(ctx).textTheme.titleMedium)),
-          for (final (f, i) in [
-            (MediaFilter.all, Icons.all_inclusive),
-            (MediaFilter.images, Icons.image_outlined),
-            (MediaFilter.videos, Icons.play_circle_outline),
-            (MediaFilter.galleries, Icons.collections_outlined),
-            (MediaFilter.text, Icons.notes),
-          ])
-            _row(ctx, i, mediaFilterLabels[f]!, () => mediaFilter.value = f,
+          for (final f in MediaFilter.values)
+            _row(ctx, mediaFilterIcons[f]!, mediaFilterLabels[f]!, () => mediaFilter.value = f,
                 trailing: mediaFilter.value == f ? Icon(Icons.check, color: Theme.of(ctx).colorScheme.primary) : null),
           const Divider(),
           _row(ctx, Icons.filter_none, 'Hide duplicates', () => dupesNotifier.value = !dupesNotifier.value,

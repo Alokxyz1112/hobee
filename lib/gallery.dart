@@ -9,6 +9,10 @@ import 'archive_ui.dart';
 import 'db.dart';
 import 'dedupe.dart';
 import 'filters.dart';
+import 'sub_search.dart';
+import 'sub_users.dart';
+import 'viewed.dart';
+import 'find_ui.dart';
 import 'models.dart';
 import 'source_bar.dart';
 import 'viewer.dart';
@@ -19,9 +23,10 @@ const _cols = 3;
 
 class _Section {
   final int year, month;
+  String? custom;
   final List<int> idx = []; // indices into entries
   _Section(this.year, this.month);
-  String get label => '${_months[month - 1]} $year';
+  String get label => custom ?? '${_months[month - 1]} $year';
 }
 
 class GalleryScreen extends StatefulWidget {
@@ -29,7 +34,9 @@ class GalleryScreen extends StatefulWidget {
   final bool sources;
   final Widget? leading;
   final List<Widget> actions;
-  const GalleryScreen({super.key, this.title, this.sources = true, this.leading, this.actions = const []});
+  final Widget? header;
+  final VoidCallback? onTitleTap;
+  const GalleryScreen({super.key, this.title, this.sources = true, this.leading, this.actions = const [], this.header, this.onTitleTap});
   @override
   State<GalleryScreen> createState() => _GalleryScreenState();
 }
@@ -64,10 +71,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
     super.initState();
     currentSource.addListener(_switch);
     subSort.addListener(_switchSort);
-    viewFilters.addListener(_rebuild);
-    Dedupe.version.addListener(_rebuild);
+    viewFilters.addListener(_rebuildSoon);
+    Dedupe.version.addListener(_rebuildSoon);
     MediaCheck.gone.addListener(_goneChanged);
     dateRange.addListener(_seek);
+    Viewed.names.addListener(_viewedChanged);
+    Viewed.hide.addListener(_viewedChanged);
     sc.addListener(() {
       if (sc.position.pixels > sc.position.maxScrollExtent - 1200) _more();
     });
@@ -76,13 +85,18 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   @override
   void dispose() {
+    _retryT?.cancel();
     currentSource.removeListener(_switch);
     subSort.removeListener(_switchSort);
-    viewFilters.removeListener(_rebuild);
-    Dedupe.version.removeListener(_rebuild);
+    viewFilters.removeListener(_rebuildSoon);
+    Dedupe.version.removeListener(_rebuildSoon);
+    _rebuildT?.cancel();
     MediaCheck.gone.removeListener(_goneChanged);
     _goneT?.cancel();
     dateRange.removeListener(_seek);
+    sc.dispose();
+    Viewed.names.removeListener(_viewedChanged);
+    Viewed.hide.removeListener(_viewedChanged);
     super.dispose();
   }
 
@@ -92,7 +106,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
   }
 
   Future<void> _seek() async {
-    if (!_active) return;
+    if (!_active || restoringFilters) return;
     final r = dateRange.value;
     if (r == null || seeking) return;
     final src = effectiveSource();
@@ -104,15 +118,23 @@ class _GalleryScreenState extends State<GalleryScreen> {
     });
     if (!mounted) return;
     final (_, d) = await Db.cursor(src);
+    if (!mounted) return;
     if (src == effectiveSource()) done = d;
     await _fromDb();
+    if (!mounted) return;
     setState(() { seeking = false; seekMsg = null; if (err != null) error = err; });
   }
 
   Future<void> _switch() async {
     if (!_active) return;
     final src = effectiveSource();
+    // Same source with pages already in memory (e.g. back from a profile or the viewer): keep them, no refetch.
+    if (src == _loaded && _all.isNotEmpty) {
+      _rebuild();
+      return;
+    }
     _loaded = src;
+    _bg = 0;
     await _fromDb();
     final (_, d) = await Db.cursor(src);
     if (!mounted || src != effectiveSource()) return;
@@ -127,33 +149,78 @@ class _GalleryScreenState extends State<GalleryScreen> {
   Future<void> _fromDb() async {
     final src = effectiveSource();
     final all = await Db.load(src);
-    if (src != effectiveSource()) return;
+    if (!mounted || src != effectiveSource()) return;
     _all = all;
-    await Dedupe.warm(all);
+    // Show posts right away; duplicate grouping catches up once saved hashes are read.
     _rebuild();
+    if (!dupesOn || textish) return;
+    await Dedupe.warm(all);
+    if (!mounted || src != effectiveSource()) return;
+    _rebuildSoon();
   }
 
   Timer? _goneT;
   void _goneChanged() {
-    if (!hideGone.value || !isDeep(effectiveSource())) return;
-    _goneT ??= Timer(const Duration(milliseconds: 700), () { _goneT = null; _rebuild(); });
+    if (!hideGone.value) return;
+    _goneT ??= Timer(const Duration(milliseconds: 700), () { _goneT = null; _anchor = true; _rebuild(); });
+  }
+
+  /// Filter changes and dedupe hash updates come in bursts (typing, chips, hashing); refilter once per burst.
+  Timer? _rebuildT;
+  void _rebuildSoon() {
+    _rebuildT?.cancel();
+    _rebuildT = Timer(const Duration(milliseconds: 150), _rebuild);
+  }
+
+  int _bg = 0;
+  bool _anchor = false;
+  void _viewedChanged() {
+    if (!isSubSearch(effectiveSource()) && !isSubSearch(_loaded ?? '')) return;
+    _anchor = true;
+    _rebuildSoon();
   }
 
   void _rebuild() {
-    if (!_active) return;
-    final g = hideGone.value && isDeep(effectiveSource()) ? MediaCheck.gone.value : const <String>{};
-    var shown = _all.where((p) => matches(p) && !g.contains(p.id)).toList();
+    _rebuildT?.cancel();
+    if (!_active || !mounted) return;
+    final old = entries;
+    final g = hideGone.value ? MediaCheck.gone.value : const <String>{};
+    var shown = filterAndCount(_all);
+    if (g.isNotEmpty) shown = shown.where((p) => !g.contains(p.id)).toList();
     var cp = <String, List<Post>>{};
-    if (dupesOn && mediaFilter.value != MediaFilter.text) (shown, cp) = Dedupe.collapse(shown);
+    if (dupesOn && !textish) (shown, cp) = Dedupe.collapse(shown);
     copies = cp;
     final e = flatten(shown);
     final secs = <_Section>[];
+    final rel = Rel.active && relevanceSort.value;
+    final ranked = rel || (isSubSearch(effectiveSource()) && srSort.value != SrSort.newest);
+    if (ranked && e.isNotEmpty) {
+      final d = e.first.post.date.toLocal();
+      secs.add(_Section(d.year, d.month)..custom = rel ? 'Most relevant' : srSortLabels[srSort.value]);
+    }
     for (var i = 0; i < e.length; i++) {
+      if (ranked) { secs.last.idx.add(i); continue; }
       final d = e[i].post.date.toLocal();
       if (secs.isEmpty || secs.last.year != d.year || secs.last.month != d.month) secs.add(_Section(d.year, d.month));
       secs.last.idx.add(i);
     }
+    final anchor = _anchor;
+    _anchor = false;
+    double? to;
+    if (anchor && sc.hasClients && sc.offset > 0 && old.isNotEmpty) {
+      final pos = sc.position;
+      final tile = pos.viewportDimension > 0 ? (context.size?.width ?? 360) / _cols : 120.0;
+      to = anchoredOffset(sc.offset, pos.maxScrollExtent + pos.viewportDimension, [for (final x in old) x.post.id], {for (final x in e) x.post.id}, tile, _cols);
+    }
     if (mounted) setState(() { entries = e; sections = secs; });
+    _checkEndSoon();
+    if (to != null) {
+      final t = to;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && sc.hasClients) sc.jumpTo(t.clamp(0.0, sc.position.maxScrollExtent));
+      });
+      return;
+    }
     if (mounted && sc.hasClients && sc.offset > 0 && sc.position.maxScrollExtent < sc.offset) sc.jumpTo(0);
   }
 
@@ -166,8 +233,23 @@ class _GalleryScreenState extends State<GalleryScreen> {
     }
   }
 
-  Future<void> _more() async {
+  /// Load the next page whenever the end of the list is close: on scroll, and also after a page lands or tiles get
+  /// hidden (the list may not fill the screen, so no scroll event would ever come and 'Load more' would sit there).
+  void _nearEnd() {
+    if (!mounted || !sc.hasClients || loading || done || bulk || error != null || _noGrow >= 5) return;
+    if (sc.position.pixels > sc.position.maxScrollExtent - 1200) _more();
+  }
+
+  void _checkEndSoon() => WidgetsBinding.instance.addPostFrameCallback((_) => _nearEnd());
+
+  int _errRetry = 0;
+  Timer? _retryT;
+  int _noGrow = 0; // auto-loads in a row that added nothing visible; stop after a few until the user scrolls
+  int _auto = 0;
+  Future<void> _more({bool auto = false}) async {
     if (loading || done) return;
+    if (!auto) { _auto = 0; _noGrow = 0; }
+    final before = entries.length;
     final src = effectiveSource();
     setState(() { loading = true; error = null; });
     var again = false;
@@ -182,22 +264,49 @@ class _GalleryScreenState extends State<GalleryScreen> {
         done = d;
         await _fromDb();
         // Keep fetching if this page had no media but more pages exist.
-        again = !done && sc.hasClients && sc.position.maxScrollExtent < 600 && dateRange.value == null;
+        again = !done && sc.hasClients && sc.position.maxScrollExtent < 600 && dateRange.value == null && _auto < 6;
+        // Keyword search on a subreddit: keep paging in the background until enough good matches.
+        if (!done && !again && isSubSearch(src) && Rel.active && entries.length < 40 && _bg < 10) {
+          _bg++;
+          again = true;
+        }
       }
+      _errRetry = 0;
+      _noGrow = entries.length > before ? 0 : _noGrow + 1;
     } catch (e) {
-      if (src == effectiveSource()) error = 'Couldn\'t load more: ${'$e'.replaceFirst('Exception: ', '')}';
+      if (src == effectiveSource()) {
+        // One quiet retry before showing the button: most failures are a host hiccup.
+        if (_errRetry < 1) {
+          _errRetry++;
+          _retryT?.cancel();
+          _retryT = Timer(const Duration(seconds: 3), () { _retryT = null; if (mounted && src == effectiveSource()) _more(auto: true); });
+        } else {
+          error = 'Couldn\'t load more: ${'$e'.replaceFirst('Exception: ', '')}';
+        }
+      }
     } finally {
       if (mounted) setState(() => loading = false);
     }
-    if (again && mounted) await _more();
+    if (again && mounted) { _auto++; await _more(auto: true); } else { _checkEndSoon(); }
   }
 
   Future<void> _loadAll() async {
     final src = effectiveSource();
     setState(() { bulk = true; cancel = false; bulkPages = 0; });
-    while (!done && mounted && error == null && !cancel && src == effectiveSource()) {
+    var fails = 0;
+    while (!done && mounted && !cancel && src == effectiveSource()) {
       await _more();
-      if (mounted) setState(() => bulkPages++);
+      if (!mounted) break;
+      if (error != null) {
+        // A page failed even after its own retries: wait and try again a few times before giving up.
+        if (++fails > 3) break;
+        await Future.delayed(Duration(seconds: 10 * fails));
+        if (!mounted || cancel) break;
+        setState(() => error = null);
+        continue;
+      }
+      fails = 0;
+      setState(() => bulkPages++);
     }
     if (mounted) setState(() => bulk = false);
   }
@@ -279,7 +388,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
           slivers: [
             SliverAppBar(pinned: true, flexibleSpace: const GlassBar(), 
         leading: widget.leading,
-        title: Text(widget.title ?? 'Hobee', style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: TitleButton(widget.title ?? 'Hobee', onTap: widget.onTitleTap),
         actions: [
           ...widget.actions,
           IconButton(icon: const Icon(Icons.calendar_month), tooltip: 'Jump to month', onPressed: sections.isEmpty ? null : _jump),
@@ -297,6 +406,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
         ],
         bottom: SourceAndFilterBar(sources: widget.sources),
       ),
+            if (widget.header != null) SliverToBoxAdapter(child: widget.header),
             if (deep)
               SliverToBoxAdapter(
                 child: DeepStatusPanel(
@@ -325,10 +435,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                     final dup = copies[e.post.id];
                     return GestureDetector(
                       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Viewer(entries: entries, start: i))),
-                      onLongPress: dup == null ? null : () => showCopiesSheet(context, dup, (p) {
-                        final pe = flatten([p]);
-                        if (pe.isNotEmpty) Navigator.push(context, MaterialPageRoute(builder: (_) => Viewer(entries: pe, start: 0)));
-                      }),
+                      onLongPress: () => showTileMenu(context, e.post, e.item, dup),
                       child: Padding(
                         padding: const EdgeInsets.all(1),
                         child: Stack(fit: StackFit.expand, children: [
@@ -340,6 +447,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                               : Image.network(e.item.thumb, fit: BoxFit.cover, cacheWidth: 360,
                                   errorBuilder: (_, _, _) => Container(color: cs.surfaceContainerHighest, child: const Icon(Icons.broken_image))),
                           if (deep) Positioned(left: 4, bottom: 4, child: StatusBadge(e.post)),
+                          if (!deep && e.index == 0) Positioned(left: 3, bottom: 3, right: 30, child: Align(alignment: Alignment.bottomLeft, child: TileAuthor(e.post.author))),
                           if (e.item.type != MediaType.image)
                             const Positioned(right: 4, top: 4, child: _Badge(Icons.play_arrow_rounded)),
                           if (e.post.media.length > 1)
@@ -360,7 +468,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                       : error != null
                           ? Column(children: [Text(error!, textAlign: TextAlign.center), TextButton(onPressed: _more, child: const Text('Retry'))])
                           : done
-                              ? (entries.isEmpty && mediaFilter.value == MediaFilter.text && _all.any((p) => p.media.isEmpty)
+                              ? (entries.isEmpty && textish && _all.any((p) => p.media.isEmpty)
                                   ? TextButton.icon(onPressed: () => applyLayout(PostLayout.card), icon: const Icon(Icons.view_agenda_outlined), label: const Text('Text posts show in Card / Compact layout'))
                                   : Text(entries.isEmpty ? (_all.isEmpty ? (deep ? 'No archived posts' : 'No media here') : (_all.every((p) => p.media.isEmpty) ? 'All posts are text, no media' : 'Nothing matches these filters')) : 'No more posts'))
                               : TextButton(onPressed: _more, child: const Text('Load more')),
@@ -409,4 +517,17 @@ class _Badge extends StatelessWidget {
         decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
         child: Icon(icon, color: Colors.white, size: 16),
       );
+}
+
+/// Keep the view near the same item when entries above it disappear: estimate the top item
+/// from the scroll fraction, then move up by the rows removed above it.
+double anchoredOffset(double offset, double total, List<String> oldIds, Set<String> kept, double tile, int cols) {
+  if (oldIds.isEmpty || total <= 0) return offset;
+  final top = (offset / total * oldIds.length).floor().clamp(0, oldIds.length - 1);
+  var gone = 0;
+  for (var i = 0; i < top; i++) {
+    if (!kept.contains(oldIds[i])) gone++;
+  }
+  final o = offset - (gone / cols).floor() * tile;
+  return o < 0 ? 0 : o;
 }

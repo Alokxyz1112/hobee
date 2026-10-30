@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hobee/public_sources.dart';
 import 'package:hobee/models.dart';
 void main() {
-  test('redlib parse', () {
+  test('redlib parse', skip: !File('/tmp/rl_redlib.ducks.party').existsSync() ? 'needs local fixture' : null, () {
     final p = Redlib.parse('https://redlib.ducks.party', File('/tmp/rl_redlib.ducks.party').readAsStringSync(), 'GallowBoob');
     final posts = p.rows.map(Post.fromJson).whereType<Post>().toList();
     final withMedia = posts.where((x) => x.media.isNotEmpty).length;
@@ -11,7 +11,7 @@ void main() {
     print('redlib rows ${p.rows.length} media $withMedia next ${p.after} first ${posts.first.media.firstOrNull?.url} date ${posts[1].date}');
     expect(withMedia, greaterThan(5));
   });
-  test('rss parse', () {
+  test('rss parse', skip: !File('/tmp/r.xml').existsSync() ? 'needs local fixture' : null, () {
     final p = RedditRss.parse(File('/tmp/r.xml').readAsStringSync(), 'GallowBoob');
     final posts = p.rows.map(Post.fromJson).whereType<Post>().toList();
     final withMedia = posts.where((x) => x.media.isNotEmpty).length;

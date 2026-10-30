@@ -9,8 +9,8 @@ import 'db.dart';
 import 'models.dart';
 import 'public_sources.dart';
 
-const appVersion = '1.4.0';
-const _ua = 'android:com.alok.hobee:v$appVersion (personal gallery app)';
+const appVersion = '1.6.1';
+const _ua = 'android:com.alok.hobee:v$appVersion (gallery app)';
 
 /// Archive providers. Order + enabled state are user-configurable in Settings.
 enum ArchiveProvider { pullpush, arcticShift }
@@ -122,24 +122,32 @@ class Archive {
     _last[host] = DateTime.now();
   }
 
-  static Future<List<Map<String, dynamic>>> _getJsonList(Uri u, {bool retry429 = false, Map<String, String> extra = const {}}) async {
-    for (var attempt = 0; attempt < 2; attempt++) {
+  /// [retries] > 0 also retries timeouts, network errors and 5xx with exponential backoff
+  /// (used for deep account paging, where one hiccup must not stop the whole history).
+  static Future<List<Map<String, dynamic>>> _getJsonList(Uri u, {bool retry429 = false, Map<String, String> extra = const {}, int retries = 0}) async {
+    final maxAttempts = retries > 0 ? retries + 1 : 2;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      final last = attempt == maxAttempts - 1;
+      Duration backoff() => Duration(seconds: (2 << attempt).clamp(2, 30));
       await _pace(u.host);
       final http.Response r;
       try {
-        r = await http.get(u, headers: {'User-Agent': _ua, 'Accept': 'application/json', ...extra}).timeout(const Duration(seconds: 45));
+        r = await http.get(u, headers: {'User-Agent': _ua, 'Accept': 'application/json', ...extra}).timeout(const Duration(seconds: 20));
       } on TimeoutException {
-        throw _Unavailable('timed out', 'No response in 45 s from ${u.host}');
+        if (retries > 0 && !last) { await Future.delayed(backoff()); continue; }
+        throw _Unavailable('timed out', 'No response in 20 s from ${u.host}');
       } catch (e) {
+        if (retries > 0 && !last) { await Future.delayed(backoff()); continue; }
         throw _Unavailable('network error', '$e');
       }
       final ct = r.headers['content-type'] ?? '';
-      if (r.statusCode == 429 && retry429 && attempt == 0) {
+      if (r.statusCode == 429 && (retry429 || retries > 0) && !last) {
         // Respect the server's reset hint (seconds); cap the wait.
-        final reset = int.tryParse(r.headers['x-ratelimit-reset'] ?? '') ?? 5;
-        await Future.delayed(Duration(seconds: reset.clamp(1, 60)));
+        final reset = int.tryParse(r.headers['x-ratelimit-reset'] ?? '') ?? backoff().inSeconds;
+        await Future.delayed(Duration(seconds: reset.clamp(1, 15)));
         continue;
       }
+      if (r.statusCode >= 500 && retries > 0 && !last) { await Future.delayed(backoff()); continue; }
       final detail = 'HTTP ${r.statusCode} from $u\n${_bodySnippet(r.body)}';
       if (r.statusCode == 429) throw _Unavailable('blocked (rate-limited)', detail);
       if (r.statusCode == 403) throw _Unavailable('blocked (HTTP 403)', detail);
@@ -189,10 +197,15 @@ class Archive {
   }
 
   /// Oldest timestamp of a full page (more may exist before it); null when the page was short (end).
+  @visibleForTesting
+  static int? cursorOfForTest(List<Map<String, dynamic>> rows) => _cursorOf(rows);
+
   static int? _cursorOf(List<Map<String, dynamic>> rows) {
     if (rows.length < _pageSize) return null;
     final t = rows.map(_ts).where((t) => t > 0).fold<int?>(null, (a, b) => a == null || b < a ? b : a);
-    return t;
+    // `before` is exclusive: +1 re-reads the oldest second so posts sharing it are not skipped
+    // (duplicates merge by id; the caller forces progress if a page doesn't move the cursor).
+    return t == null ? null : t + 1;
   }
 
   static Future<List<Map<String, dynamic>>> _query(ArchiveProvider p, String name, String? sub, int? before) {
@@ -208,7 +221,7 @@ class Archive {
           if (name.isNotEmpty) 'author': name, 'limit': '100', 'sort': 'desc',
           'subreddit': ?sub,
           if (before != null) 'before': '$before',
-        }), retry429: true);
+        }), retry429: true, retries: 3);
     }
   }
 
@@ -251,11 +264,29 @@ class Archive {
     final byId = <String, Map<String, dynamic>>{};
     final nextPer = <int>[];
     final statuses = <ProviderStatus>[];
-    for (final p in providers) {
+    // Live Reddit page and every archive host run at the same time (each host keeps its own pacing).
+    final liveF = _livePage(source, name, sub, fromStart);
+    liveF.then((_) {}, onError: (_) {}); // handled when awaited below; avoids an unhandled-error report meanwhile
+    Future<(ArchiveProvider, List<Map<String, dynamic>>, int?, Object?)> one(ArchiveProvider p) async {
       try {
-        var (rows, pNext) = await _queryAll(p, name, sub, before);
-        // Fallback: try the lower-cased author if an exact-case lookup returned nothing.
-        if (rows.isEmpty && before == null && name != name.toLowerCase()) (rows, pNext) = await _queryAll(p, name.toLowerCase(), sub, before);
+        // Cap each host so one slow or dead archive can't keep the page spinning for minutes.
+        final cap = Duration(seconds: p == providers.first ? 60 : 25);
+        Future<(List<Map<String, dynamic>>, int?)> run() async {
+          var (rows, pNext) = await _queryAll(p, name, sub, before);
+          if (rows.isEmpty && before == null && name != name.toLowerCase()) (rows, pNext) = await _queryAll(p, name.toLowerCase(), sub, before);
+          return (rows, pNext);
+        }
+        final (rows, pNext) = await run().timeout(cap, onTimeout: () => throw _Unavailable('timed out', '${p.name} took over ${cap.inSeconds} s'));
+        return (p, rows, pNext, null);
+      } catch (e) {
+        return (p, <Map<String, dynamic>>[], null, e);
+      }
+    }
+    final results = await Future.wait(providers.map(one));
+    for (final (p, rows0, pNext, err) in results) {
+      try {
+        if (err != null) throw err;
+        var rows = rows0;
         // Exact (case-insensitive) author match; drops any fuzzy/partial matches.
         rows = rows.where((r) => '${r['author'] ?? ''}'.toLowerCase() == name.toLowerCase() || r['author'] == '[deleted]' ||
             '${r['subreddit'] ?? ''}'.toLowerCase() == 'u_${name.toLowerCase()}').toList();
@@ -275,7 +306,7 @@ class Archive {
     final bad0 = statuses.where((s) => !s.ok).length;
     // Live Reddit (OAuth when logged in, else the public JSON listing): marks posts still present
     // and covers very recent posts the archives haven't ingested yet.
-    final (liveIds, liveStatuses, liveDone) = await _livePage(source, name, sub, fromStart);
+    final (liveIds, liveStatuses, liveDone) = await liveF;
     statuses.addAll(liveStatuses);
     archiveStatus.value = statuses;
     final bad = statuses.where((s) => !s.ok).toList();
@@ -400,6 +431,127 @@ class Archive {
     }
     if (!fromStart || after == null) await Db.setCursor(key, next);
     return (live.map((p) => p.id).toSet(), statuses, fromStart && after != null ? false : next == null);
+  }
+
+  /// Recent posts in a subreddit from Arctic Shift (no login, paced, 429 backoff). Used for account suggestions.
+  static Future<List<Map<String, dynamic>>> subredditPosts(String sub, {DateTime? after, DateTime? before}) {
+    String day(DateTime d) => d.toIso8601String().substring(0, 10);
+    return _getJsonList(
+        Uri.https('arctic-shift.photon-reddit.com', '/api/posts/search', {
+          'subreddit': sub,
+          'limit': '100',
+          'sort': 'desc',
+          if (after != null) 'after': day(after),
+          if (before != null) 'before': day(before),
+        }),
+        retry429: true);
+  }
+
+  /// One page of a subreddit's posts, newest first, from Arctic Shift. [title] is matched server side;
+  /// if the archive times out on a keyword search we retry without it and match locally.
+  static Future<List<Map<String, dynamic>>> subPage(String sub, {String? title, String? author, int? after, int? before}) async {
+    Uri u(String? t) => Uri.https('arctic-shift.photon-reddit.com', '/api/posts/search', {
+          'subreddit': sub,
+          'limit': '100',
+          'sort': 'desc',
+          if (t != null && t.isNotEmpty) 'title': t,
+          if (author != null && author.isNotEmpty) 'author': author,
+          if (after != null) 'after': '$after',
+          if (before != null) 'before': '$before',
+        });
+    try {
+      return await _getJsonList(u(title), retry429: true);
+    } on _Unavailable {
+      if (title == null || title.isEmpty) rethrow;
+      final words = title.toLowerCase().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+      final rows = await _getJsonList(u(null), retry429: true);
+      // Keep the page cursor honest: tag the oldest row so paging continues past filtered pages.
+      final oldest = rows.isEmpty ? null : rows.map(_ts).reduce((a, b) => a < b ? a : b);
+      final kept = rows.where((r) {
+        final t = '${r['title'] ?? ''} ${r['selftext'] ?? ''}'.toLowerCase();
+        return words.every(t.contains);
+      }).toList();
+      if (rows.length >= 100 && oldest != null) kept.add({'_hobee_cursor': oldest});
+      return kept;
+    }
+  }
+
+  /// Public user stats from Arctic Shift (_meta: karma, post/comment counts, first and last seen).
+  static Future<Map?> userStats(String name) async {
+    try {
+      final rows = await _getJsonList(Uri.https('arctic-shift.photon-reddit.com', '/api/users/search', {'author': name, 'limit': '5'}), retry429: true);
+      for (final r in rows) {
+        if ('${r['author']}'.toLowerCase() == name.toLowerCase() && r['_meta'] is Map) return r['_meta'] as Map;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Subreddit name suggestions by prefix (Arctic Shift).
+  static Future<List<String>> subNames(String prefix) async {
+    if (prefix.length < 2) return [];
+    final rows = await _getJsonList(Uri.https('arctic-shift.photon-reddit.com', '/api/subreddits/search',
+        {'subreddit_prefix': prefix, 'limit': '8', 'fields': 'display_name'}));
+    return [for (final r in rows) if (r['display_name'] != null) '${r['display_name']}'];
+  }
+
+  /// A user's recent posts from Arctic Shift (one page). Used for suggestion previews.
+  static Future<List<Map<String, dynamic>>> userPosts(String name, {int limit = 60}) => _getJsonList(
+      Uri.https('arctic-shift.photon-reddit.com', '/api/posts/search', {'author': name, 'limit': '$limit', 'sort': 'desc'}),
+      retry429: true);
+
+  /// Karma from Arctic Shift's public user stats: (post, comment, total), null if unknown.
+  static Future<(int, int, int)?> karma(String name) async {
+    try {
+      final rows = await _getJsonList(Uri.https('arctic-shift.photon-reddit.com', '/api/users/search', {'author': name, 'limit': '5'}), retry429: true);
+      for (final r in rows) {
+        if ('${r['author']}'.toLowerCase() != name.toLowerCase()) continue;
+        final m = r['_meta'];
+        if (m is! Map || m['total_karma'] == null) return null;
+        int n(Object? v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
+        return (n(m['post_karma']), n(m['comment_karma']), n(m['total_karma']));
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Public about.json: karma, adult profile flag, suspended. Null when Reddit blocks the read.
+  static Future<({int post, int comment, int total, bool nsfw, bool suspended})?> about(String name) async {
+    try {
+      final u = Uri.https('www.reddit.com', '/user/$name/about.json', {'raw_json': '1'});
+      await _pace(u.host);
+      final r = await http.get(u, headers: {'User-Agent': _ua, 'Accept': 'application/json'}).timeout(const Duration(seconds: 12));
+      if (r.statusCode == 404) return (post: 0, comment: 0, total: 0, nsfw: false, suspended: true);
+      if (r.statusCode != 200 || r.body.trimLeft().startsWith('<')) return null;
+      final d = (jsonDecode(r.body) as Map)['data'] as Map?;
+      if (d == null) return null;
+      int n(Object? v) => v is num ? v.toInt() : 0;
+      final sub = d['subreddit'];
+      return (
+        post: n(d['link_karma']),
+        comment: n(d['comment_karma']),
+        total: d['total_karma'] != null ? n(d['total_karma']) : n(d['link_karma']) + n(d['comment_karma']),
+        nsfw: sub is Map && sub['over_18'] == true,
+        suspended: d['is_suspended'] == true,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Avatar from the public about.json; null when Reddit blocks or the user has none.
+  static Future<String?> avatar(String name) async {
+    try {
+      final u = Uri.https('www.reddit.com', '/user/$name/about.json', {'raw_json': '1'});
+      await _pace(u.host);
+      final r = await http.get(u, headers: {'User-Agent': _ua, 'Accept': 'application/json'}).timeout(const Duration(seconds: 12));
+      if (r.statusCode != 200 || r.body.trimLeft().startsWith('<')) return null;
+      final d = (jsonDecode(r.body) as Map)['data'] as Map?;
+      final i = '${d?['snoovatar_img'] ?? ''}'.isNotEmpty ? '${d!['snoovatar_img']}' : '${d?['icon_img'] ?? ''}';
+      return i.isEmpty ? null : unesc(i);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Public, logged-out read of reddit.com/user/NAME/submitted.json. If Reddit answers 403/429/HTML

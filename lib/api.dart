@@ -4,6 +4,7 @@ import 'archive.dart';
 import 'auth.dart';
 import 'db.dart';
 import 'models.dart';
+import 'sub_search.dart';
 
 class Api {
   static Future<Map<String, dynamic>> get(String path, [Map<String, String>? q]) async {
@@ -38,6 +39,7 @@ class Api {
 
   /// Fetch next page for source, cache it, return number of new posts. Returns -1 if done.
   static Future<int> fetchMore(String source, {bool fromStart = false}) async {
+    if (isSubSearch(source)) return SubSearch.fetchMore(source, fromStart: fromStart);
     if (isDeep(source)) return Archive.fetchMore(source, fromStart: fromStart);
     final (after, done) = await Db.cursor(source);
     if (done && !fromStart) return -1;

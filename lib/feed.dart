@@ -1,3 +1,5 @@
+import 'keyword_ui.dart';
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'glass.dart';
@@ -7,16 +9,20 @@ import 'archive_ui.dart';
 import 'db.dart';
 import 'dedupe.dart';
 import 'filters.dart';
+import 'find_ui.dart';
 import 'models.dart';
 import 'source_bar.dart';
 import 'viewer.dart';
+import 'sub_search.dart';
 
 class FeedScreen extends StatefulWidget {
   final String? title;
   final bool sources;
   final Widget? leading;
   final List<Widget> actions;
-  const FeedScreen({super.key, this.title, this.sources = true, this.leading, this.actions = const []});
+  final Widget? header;
+  final VoidCallback? onTitleTap;
+  const FeedScreen({super.key, this.title, this.sources = true, this.leading, this.actions = const [], this.header, this.onTitleTap});
   @override
   State<FeedScreen> createState() => _FeedScreenState();
 }
@@ -31,12 +37,18 @@ class _FeedScreenState extends State<FeedScreen> {
   Map<String, List<Post>> copies = {};
 
   List<Post> _filter(List<Post> all) {
-    var shown = all.where(matches).toList();
+    var shown = filterAndCount(all);
     var cp = <String, List<Post>>{};
-    if (dupesOn && mediaFilter.value != MediaFilter.text) (shown, cp) = Dedupe.collapse(shown);
+    if (dupesOn && !textish) (shown, cp) = Dedupe.collapse(shown);
     copies = cp;
     return shown;
   }
+  Timer? _applyT;
+  void _applySoon() {
+    _applyT?.cancel();
+    _applyT = Timer(const Duration(milliseconds: 150), _apply);
+  }
+
   bool loading = false, done = false;
   String? error;
 
@@ -60,8 +72,8 @@ class _FeedScreenState extends State<FeedScreen> {
     super.initState();
     currentSource.addListener(_load);
     subSort.addListener(_load);
-    viewFilters.addListener(_apply);
-    Dedupe.version.addListener(_apply);
+    viewFilters.addListener(_applySoon);
+    Dedupe.version.addListener(_applySoon);
     postLayout.addListener(_apply);
     sc.addListener(() {
       if (sc.position.pixels > sc.position.maxScrollExtent - 800) _more();
@@ -73,8 +85,9 @@ class _FeedScreenState extends State<FeedScreen> {
   void dispose() {
     currentSource.removeListener(_load);
     subSort.removeListener(_load);
-    viewFilters.removeListener(_apply);
-    Dedupe.version.removeListener(_apply);
+    viewFilters.removeListener(_applySoon);
+    _applyT?.cancel();
+    Dedupe.version.removeListener(_applySoon);
     postLayout.removeListener(_apply);
     super.dispose();
   }
@@ -137,7 +150,7 @@ class _FeedScreenState extends State<FeedScreen> {
       backgroundColor: Colors.transparent,
       appBar: AppBar(flexibleSpace: const GlassBar(), 
         leading: widget.leading,
-        title: Text(widget.title ?? 'Hobee', style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: TitleButton(widget.title ?? 'Hobee', onTap: widget.onTitleTap),
         actions: [
           ...widget.actions,
           IconButton(
@@ -161,17 +174,21 @@ class _FeedScreenState extends State<FeedScreen> {
         child: postLayout.value == PostLayout.slides ? _slides(cs) : ListView.builder(
           controller: sc,
           padding: pad,
-          itemCount: posts.length + 1 + (deep ? 1 : 0),
+          itemCount: posts.length + 1 + (deep || widget.header != null ? 1 : 0),
           itemBuilder: (_, i0) {
-            if (deep && i0 == 0) {
-              return DeepStatusPanel(
+            final top = deep || widget.header != null;
+            if (top && i0 == 0) {
+              return Column(children: [
+                ?widget.header,
+                if (deep) DeepStatusPanel(
                 all: _all, bulk: false, done: done, bulkPages: 0, oldest: '', error: error,
                 onRetry: () async { await Api.fetchMore(effectiveSource(), fromStart: true).catchError((e) { error = '$e'; return 0; }); await _load(); },
                 onFetchAll: _more, onCancel: () {},
                 onShowText: () => mediaFilter.value = MediaFilter.text,
-              );
+              ),
+              ]);
             }
-            final i = deep ? i0 - 1 : i0;
+            final i = top ? i0 - 1 : i0;
             if (i == posts.length) {
               return Padding(
                 padding: const EdgeInsets.all(24),
@@ -182,7 +199,7 @@ class _FeedScreenState extends State<FeedScreen> {
                           ? TextButton(onPressed: _more, child: Text('Error. Tap to retry\n$error', textAlign: TextAlign.center))
                           : done
                               ? Text(posts.isEmpty
-                                  ? (_all.isEmpty ? 'Nothing here' : (_all.every((p) => p.media.isEmpty) && mediaFilter.value != MediaFilter.text ? 'All posts are text. Pick the Text filter' : 'Nothing matches these filters'))
+                                  ? (_all.isEmpty ? 'Nothing here' : (_all.every((p) => p.media.isEmpty) && !textish ? 'All posts are text. Pick the Text filter' : 'Nothing matches these filters'))
                                   : 'No more posts')
                               : TextButton(onPressed: _more, child: const Text('Load more')),
                 ),
@@ -201,7 +218,7 @@ class _FeedScreenState extends State<FeedScreen> {
                 onTap: m == null
                     ? null
                     : () => _open(i),
-                onLongPress: dup == null ? null : () => showCopiesSheet(context, dup, (_) => _open(i)),
+                onLongPress: () => showTileMenu(context, p, p.media.isEmpty ? null : p.media.first, dup),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 6, 12, 3),
@@ -209,14 +226,19 @@ class _FeedScreenState extends State<FeedScreen> {
                       Row(children: [
                         Text('r/${p.subreddit} • ${p.date.toLocal().toString().substring(0, 10)}',
                             style: TextStyle(color: cs.primary, fontSize: 12, fontWeight: FontWeight.w600)),
+                        if (isSubSearch(effectiveSource())) ...[
+                          Text(' • ', style: TextStyle(color: cs.primary, fontSize: 12)),
+                          Flexible(child: AuthorLink(p.author, style: TextStyle(color: cs.primary, fontSize: 12))),
+                        ],
                         if (isDeep(effectiveSource())) ...[const SizedBox(width: 6), StatusBadge(p)],
                         if (dup != null) ...[const SizedBox(width: 6), DupBadge(dup.length)],
                       ]),
                       const SizedBox(height: 4),
-                      Text(p.title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                      HighlightText(p.title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                      WhyMatched(p.id),
                       if (m == null && self.isNotEmpty) ...[
                         const SizedBox(height: 6),
-                        Text(self, maxLines: 8, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant)),
+                        HighlightText(self, maxLines: 8, style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant)),
                       ],
                     ]),
                   ),
@@ -226,7 +248,7 @@ class _FeedScreenState extends State<FeedScreen> {
                         constraints: const BoxConstraints(maxHeight: 420),
                         child: isDeep(effectiveSource())
                             ? SizedBox(width: double.infinity, height: 300, child: ArchiveImage(key: ValueKey(m.thumb), post: p, item: m, deep: true))
-                            : Image.network(m.thumb, width: double.infinity, fit: BoxFit.cover,
+                            : Image.network(m.thumb, width: double.infinity, fit: BoxFit.cover, cacheWidth: 1080,
                                 errorBuilder: (_, _, _) => const SizedBox(height: 0)),
                       ),
                       if (m.type != MediaType.image)
@@ -251,7 +273,8 @@ class _FeedScreenState extends State<FeedScreen> {
     if (p.media.isEmpty) {
       return ListTile(
         leading: const Icon(Icons.notes),
-        title: Text(p.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14, color: read ? cs.onSurfaceVariant : null)),
+        title: HighlightText(p.title, maxLines: 2, style: TextStyle(fontSize: 14, color: read ? cs.onSurfaceVariant : null)),
+        onLongPress: () => showTileMenu(context, p, null, null),
         subtitle: Text('r/${p.subreddit} • ${p.date.toLocal().toString().substring(0, 10)}', style: TextStyle(color: cs.primary, fontSize: 12)),
         trailing: isDeep(effectiveSource()) ? StatusBadge(p) : null,
       );
@@ -260,7 +283,7 @@ class _FeedScreenState extends State<FeedScreen> {
     final dup = copies[p.id];
     return InkWell(
       onTap: () => _open(i),
-      onLongPress: dup == null ? null : () => showCopiesSheet(context, dup, (_) => _open(i)),
+      onLongPress: () => showTileMenu(context, p, p.media.isEmpty ? null : p.media.first, dup),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
         child: Row(children: [
@@ -284,7 +307,7 @@ class _FeedScreenState extends State<FeedScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(p.title, maxLines: 2, overflow: TextOverflow.ellipsis,
+              HighlightText(p.title, maxLines: 2,
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: read ? cs.onSurfaceVariant : null)),
               const SizedBox(height: 4),
               Text('r/${p.subreddit} • ${p.date.toLocal().toString().substring(0, 10)}', style: TextStyle(color: cs.primary, fontSize: 12)),
@@ -314,6 +337,7 @@ class _FeedScreenState extends State<FeedScreen> {
         final img = m.type == MediaType.image ? m.url : m.thumb;
         return GestureDetector(
           onTap: () => _open(i),
+          onLongPress: () => showTileMenu(context, p, m, copies[p.id]),
           child: Container(
             color: Colors.black,
             child: Stack(fit: StackFit.expand, children: [
@@ -327,7 +351,7 @@ class _FeedScreenState extends State<FeedScreen> {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
                     Text('r/${p.subreddit}${p.media.length > 1 ? ' • ${p.media.length} items' : ''}', style: TextStyle(color: cs.primary, fontWeight: FontWeight.w600, fontSize: 12)),
                     const SizedBox(height: 4),
-                    Text(p.title, style: const TextStyle(color: Colors.white, fontSize: 15)),
+                    HighlightText(p.title, style: const TextStyle(color: Colors.white, fontSize: 15)),
                   ]),
                 ),
               ),
