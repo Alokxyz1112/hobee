@@ -59,8 +59,10 @@ Future<void> _main() async {
     ..maximumSizeBytes = 160 << 20
     ..maximumSize = 1000;
   runApp(const HobeeApp());
-  // Startup counts as finished once the app has been up for a few seconds.
-  Timer(const Duration(seconds: 6), () => sp.setBool('booting', false));
+  // Startup counts as finished once the first frames are on screen. The old fixed 6 s timer also fired safe
+  // mode when the app was simply closed or swiped away during those first seconds.
+  WidgetsBinding.instance.addPostFrameCallback((_) => Timer(const Duration(seconds: 2), () => sp.setBool('booting', false)));
+  AppLifecycleListener(onPause: () => sp.setBool('booting', false), onDetach: () => sp.setBool('booting', false));
 }
 
 /// One failing restore must never stop the app from opening.

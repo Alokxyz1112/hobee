@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
@@ -52,10 +53,37 @@ class CleanNetworkImage extends ImageProvider<CleanNetworkImage> {
     return c;
   }
 
+  /// Fetch with a timeout. An expired preview.redd.it link (404/403) is retried once on the i.redd.it original.
+  Future<http.Response> _fetch() async {
+    Future<http.Response> get(String u) => (fetcher ?? http.get)(Uri.parse(u), headers: headers).timeout(const Duration(seconds: 30));
+    final Uri uri;
+    try {
+      uri = Uri.parse(url);
+    } on FormatException {
+      throw NetworkImageLoadException(statusCode: 0, uri: Uri());
+    }
+    http.Response r;
+    try {
+      r = await get(url);
+    } on TimeoutException {
+      throw NetworkImageLoadException(statusCode: 408, uri: uri);
+    }
+    if (r.statusCode != 200) {
+      final alt = redditOriginalOf(url);
+      if (alt != null) {
+        try {
+          final r2 = await get(alt);
+          if (r2.statusCode == 200) return r2;
+        } catch (_) {}
+      }
+      // 404/410 = the media was deleted. Expected; the widget shows a quiet 'Removed' state.
+      throw NetworkImageLoadException(statusCode: r.statusCode, uri: uri);
+    }
+    return r;
+  }
+
   Future<ImageInfo> _load(ImageDecoderCallback decode, [bool Function()? abandoned]) async {
-    final r = await (fetcher ?? http.get)(Uri.parse(url), headers: headers);
-    // 404/410 = the media was deleted. Expected; the widget shows a quiet 'Removed' state.
-    if (r.statusCode != 200) throw NetworkImageLoadException(statusCode: r.statusCode, uri: Uri.parse(url));
+    final r = await _fetch();
     if (abandoned?.call() ?? false) throw const ImageAbandoned();
     final b = r.bodyBytes;
     if (isJpeg(b)) {
@@ -76,6 +104,28 @@ class CleanNetworkImage extends ImageProvider<CleanNetworkImage> {
   bool operator ==(Object other) => other is CleanNetworkImage && other.url == url && other.maxPx == maxPx;
   @override
   int get hashCode => Object.hash(url, maxPx);
+}
+
+/// i.redd.it original for a preview.redd.it URL (previews expire, originals often stay).
+String? redditOriginalOf(String u) {
+  final m = RegExp(r'^https?://preview\.redd\.it/([^?#/]+\.(?:jpe?g|png|gif|webp))', caseSensitive: false).firstMatch(u);
+  if (m == null) return null;
+  // Newer preview names look like 'some-title-v0-abc123.jpeg'; the original is stored as 'abc123.jpeg'.
+  final name = m.group(1)!;
+  final v0 = RegExp(r'-v0-([a-z0-9]+\.[a-z]+)$', caseSensitive: false).firstMatch(name);
+  return 'https://i.redd.it/${v0?.group(1) ?? name}';
+}
+
+/// [urls] plus, right after each expired-prone preview.redd.it link, its i.redd.it original. Order kept, no dupes.
+List<String> withRedditOriginals(Iterable<String> urls) {
+  final out = <String>{};
+  for (final u in urls) {
+    if (!u.startsWith('http')) continue;
+    out.add(u);
+    final o = redditOriginalOf(u);
+    if (o != null) out.add(o);
+  }
+  return out.toList();
 }
 
 /// Thrown when nobody is listening any more (tile scrolled away); never shown or logged.
@@ -109,14 +159,12 @@ class SafeImageCompleter extends ImageStreamCompleter {
 
   void start(Future<ImageInfo> f) {
     f.then((info) {
-      if (abandoned) {
-        info.dispose();
-        return;
-      }
+      // No early return on 'abandoned': a keepAlive handle (image cache) may still want the frame, and skipping
+      // setImage would leave that stream spinning forever. A really disposed stream throws StateError, caught here.
       try {
         setImage(info);
-      } on StateError {
-        info.dispose(); // disposed between the check and the call
+      } catch (_) {
+        info.dispose();
       }
     }, onError: (Object e, StackTrace s) {
       if (abandoned || e is ImageAbandoned) return;

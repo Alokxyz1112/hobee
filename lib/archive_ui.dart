@@ -1,3 +1,4 @@
+import 'clean_image.dart' show withRedditOriginals;
 import 'package:flutter/material.dart';
 import 'archive.dart';
 import 'models.dart';
@@ -99,7 +100,7 @@ class _FallbackImageState extends State<FallbackImage> {
   int _i = 0;
   int _retry = 0;
   bool _soft = false; // saw an error that wasn't a clear 404/410
-  List<String> get _urls => widget.urls.where((u) => u.startsWith('http')).toSet().toList();
+  List<String> get _urls => withRedditOriginals(widget.urls);
 
   @override
   void didUpdateWidget(FallbackImage old) {

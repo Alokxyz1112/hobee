@@ -80,9 +80,16 @@ class Auth extends ChangeNotifier {
           'Authorization': 'Basic ${base64Encode(utf8.encode('$clientId:'))}',
           'User-Agent': userAgent,
         },
-        body: body);
-    final j = jsonDecode(r.body);
-    if (r.statusCode != 200 || j['access_token'] == null) throw Exception('Token error ${r.statusCode}: ${r.body}');
+        body: body).timeout(const Duration(seconds: 20));
+    final Object? j0;
+    try {
+      j0 = jsonDecode(r.body);
+    } on FormatException {
+      throw Exception('Token error ${r.statusCode}');
+    }
+    if (j0 is! Map) throw Exception('Token error ${r.statusCode}');
+    final j = j0;
+    if (r.statusCode != 200 || j['access_token'] == null) throw Exception('Token error ${r.statusCode}');
     accessToken = j['access_token'];
     if (j['refresh_token'] != null) refreshToken = j['refresh_token'];
     expiry = DateTime.now().add(Duration(seconds: (j['expires_in'] ?? 3600) - 60));
@@ -93,7 +100,7 @@ class Auth extends ChangeNotifier {
 
   Future<void> _fetchMe() async {
     final r = await http.get(Uri.parse('https://oauth.reddit.com/api/v1/me'),
-        headers: {'Authorization': 'bearer $accessToken', 'User-Agent': userAgent});
+        headers: {'Authorization': 'bearer $accessToken', 'User-Agent': userAgent}).timeout(const Duration(seconds: 20));
     if (r.statusCode == 200) {
       username = jsonDecode(r.body)['name'];
       await _s.write(key: 'username', value: username);

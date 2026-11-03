@@ -9,4 +9,10 @@ void main() {
   test('short page ends paging', () {
     expect(Archive.cursorOfForTest([<String, dynamic>{'id': 'a', 'created_utc': 5}]), isNull);
   });
+
+  test('Arctic Shift slow-down reply is recognised', () {
+    expect(Archive.isSlowDown(422, '{"data":null,"error":"Timeout. Maybe slow down a bit"}'), isTrue);
+    expect(Archive.isSlowDown(200, '{"data":[]}'), isFalse);
+    expect(Archive.isSlowDown(404, 'slow down'), isFalse);
+  });
 }

@@ -46,4 +46,24 @@ void main() {
     expect((errs.single as NetworkImageLoadException).statusCode, 404);
     expect(reported, isEmpty);
   });
+
+  test('expired preview falls back to the i.redd.it original', () {
+    expect(redditOriginalOf('https://preview.redd.it/kkjr9l4bizuh1.jpeg?width=320&crop=smart&s=x'), 'https://i.redd.it/kkjr9l4bizuh1.jpeg');
+    expect(redditOriginalOf('https://preview.redd.it/my-title-v0-abc123.png?width=640'), 'https://i.redd.it/abc123.png');
+    expect(redditOriginalOf('https://i.redd.it/abc.jpg'), isNull);
+    expect(withRedditOriginals(['https://preview.redd.it/a.jpg?w=1', 'https://i.redd.it/a.jpg', 'x']),
+        ['https://preview.redd.it/a.jpg?w=1', 'https://i.redd.it/a.jpg']);
+  });
+
+  test('404 on a preview tries the original before failing', () async {
+    final asked = <String>[];
+    CleanNetworkImage.fetcher = (u, {headers}) async { asked.add('$u'); return http.Response('', 404); };
+    addTearDown(() => CleanNetworkImage.fetcher = null);
+    final stream = const CleanNetworkImage('https://preview.redd.it/zz.jpeg?width=320', 512).resolve(ImageConfiguration.empty);
+    final got = Completer<Object>();
+    stream.addListener(ImageStreamListener((_, _) {}, onError: (e, _) => got.complete(e)));
+    final e = await got.future.timeout(const Duration(seconds: 5));
+    expect((e as NetworkImageLoadException).statusCode, 404);
+    expect(asked, ['https://preview.redd.it/zz.jpeg?width=320', 'https://i.redd.it/zz.jpeg']);
+  });
 }

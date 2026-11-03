@@ -254,7 +254,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
     setState(() { loading = true; error = null; });
     var again = false;
     try {
-      final n = await Api.fetchMore(src);
+      // Hard cap: whatever stalls underneath, the spinner turns into an error with Retry.
+      final n = await Api.fetchMore(src).timeout(const Duration(seconds: 120), onTimeout: () => throw TimeoutException('No response in 2 minutes, tap Retry'));
       if (src != effectiveSource()) {
         // Switched source mid-load; the new source's first page was skipped by the guard above.
         again = entries.isEmpty;

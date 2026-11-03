@@ -12,10 +12,12 @@ class Api {
     for (var attempt = 0; attempt < 2; attempt++) {
       final t = await a.token(force: attempt == 1);
       final r = await http.get(Uri.https('oauth.reddit.com', path, {'raw_json': '1', ...?q}),
-          headers: {'Authorization': 'bearer $t', 'User-Agent': a.userAgent});
+          headers: {'Authorization': 'bearer $t', 'User-Agent': a.userAgent}).timeout(const Duration(seconds: 25));
       if (r.statusCode == 401 && attempt == 0) continue;
       if (r.statusCode != 200) throw Exception('HTTP ${r.statusCode} for $path');
-      return jsonDecode(r.body);
+      final j = jsonDecode(r.body);
+      if (j is! Map<String, dynamic>) throw Exception('Unexpected response for $path');
+      return j;
     }
     throw Exception('Unauthorized');
   }

@@ -9,7 +9,7 @@ import 'db.dart';
 import 'models.dart';
 import 'public_sources.dart';
 
-const appVersion = '1.6.1';
+const appVersion = '1.6.2';
 const _ua = 'android:com.alok.hobee:v$appVersion (gallery app)';
 
 /// Archive providers. Order + enabled state are user-configurable in Settings.
@@ -112,15 +112,29 @@ bool isRemoved(Post p) {
 class Archive {
   static final Map<String, DateTime> _last = {};
 
-  /// ~1 request/second per host.
-  static Future<void> _pace(String host) async {
-    final l = _last[host];
-    if (l != null) {
-      final wait = const Duration(milliseconds: 1100) - DateTime.now().difference(l);
-      if (!wait.isNegative) await Future.delayed(wait);
-    }
-    _last[host] = DateTime.now();
+  static final Map<String, Future<void>> _gate = {};
+
+  /// ~1 request/second per host. Calls are queued, so parallel callers (archive page, profile query, user stats,
+  /// karma) no longer read the same timestamp and fire together. Arctic Shift answers such bursts with
+  /// HTTP 422 'Timeout. Maybe slow down a bit', which left the profile with no posts and no stats.
+  static Future<void> _pace(String host) {
+    final prev = _gate[host] ?? Future<void>.value();
+    final mine = prev.then((_) async {
+      final l = _last[host];
+      if (l != null) {
+        final wait = const Duration(milliseconds: 1100) - DateTime.now().difference(l);
+        if (!wait.isNegative) await Future.delayed(wait);
+      }
+      _last[host] = DateTime.now();
+    });
+    _gate[host] = mine.catchError((_) {});
+    return mine;
   }
+
+  /// Arctic Shift's overload reply: HTTP 422 (sometimes 200) with {"error": "Timeout. Maybe slow down a bit"}.
+  @visibleForTesting
+  static bool isSlowDown(int code, String body) =>
+      (code == 422 || code == 503 || code == 200) && body.length < 400 && body.contains('slow down');
 
   /// [retries] > 0 also retries timeouts, network errors and 5xx with exponential backoff
   /// (used for deep account paging, where one hiccup must not stop the whole history).
@@ -148,6 +162,10 @@ class Archive {
         continue;
       }
       if (r.statusCode >= 500 && retries > 0 && !last) { await Future.delayed(backoff()); continue; }
+      if (isSlowDown(r.statusCode, r.body)) {
+        if (!last) { await Future.delayed(backoff()); continue; }
+        throw _Unavailable('busy (asked to slow down)', 'HTTP ${r.statusCode} from $u\n${_bodySnippet(r.body)}');
+      }
       final detail = 'HTTP ${r.statusCode} from $u\n${_bodySnippet(r.body)}';
       if (r.statusCode == 429) throw _Unavailable('blocked (rate-limited)', detail);
       if (r.statusCode == 403) throw _Unavailable('blocked (HTTP 403)', detail);
@@ -167,7 +185,7 @@ class Archive {
       if (data is! List) throw _Unavailable(j['error'] != null ? '${j['error']}' : 'unexpected response', detail);
       return data.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
     }
-    throw _Unavailable('blocked (rate-limited)', 'HTTP 429 twice from ${u.host}');
+    throw _Unavailable('blocked (rate-limited)', 'HTTP 429 repeatedly from ${u.host}');
   }
 
   /// Author query, plus (Arctic Shift, no sub filter) the user's own profile subreddit `u_NAME`:
@@ -306,7 +324,9 @@ class Archive {
     final bad0 = statuses.where((s) => !s.ok).length;
     // Live Reddit (OAuth when logged in, else the public JSON listing): marks posts still present
     // and covers very recent posts the archives haven't ingested yet.
-    final (liveIds, liveStatuses, liveDone) = await liveF;
+    // Capped: a stalled Reddit/RSS/Redlib request must never keep the profile spinning.
+    final (liveIds, liveStatuses, liveDone) = await liveF.timeout(const Duration(seconds: 45),
+        onTimeout: () => (<String>{}, [const ProviderStatus(null, name: 'Reddit live', error: 'timed out', detail: 'No live listing in 45 s')], false));
     statuses.addAll(liveStatuses);
     archiveStatus.value = statuses;
     final bad = statuses.where((s) => !s.ok).toList();

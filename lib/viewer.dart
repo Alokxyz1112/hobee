@@ -158,7 +158,7 @@ class PhotoFallbackState extends State<PhotoFallback> {
   final failures = <String>[]; // "url → reason", newest last
   int _gen = 0; // bumps on retry so a fresh provider/key is used
 
-  List<String> get urls => widget.urls.where((u) => u.startsWith('http')).toSet().toList();
+  List<String> get urls => withRedditOriginals(widget.urls);
 
   @override
   void didUpdateWidget(PhotoFallback oldWidget) {
