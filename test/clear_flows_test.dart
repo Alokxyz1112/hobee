@@ -1,3 +1,4 @@
+import 'package:hobee/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hobee/db.dart';
@@ -17,6 +18,7 @@ Post mk(int i, String a) => Post.fromJson({
     })!;
 
 void main() {
+  Archive.pacing = false;
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
   final errors = <Object>[];

@@ -166,14 +166,19 @@ class ProfileHeader extends StatelessWidget {
               if (m == null) {
                 return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text('u/$user', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  Text(s.connectionState == ConnectionState.done ? 'No public stats' : 'Loading stats...', style: style),
+                  if (s.connectionState != ConnectionState.done) Text('Loading stats...', style: style),
                 ]);
               }
               int n(Object? v) => v is num ? v.toInt() : 0;
               final first = [n(m['earliest_post_at']), n(m['earliest_comment_at'])].where((x) => x > 0).fold<int>(0, (a, b) => a == 0 || b < a ? b : a);
               return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('u/$user', style: const TextStyle(fontWeight: FontWeight.bold)),
-                Text('${_n(n(m['total_karma']))} karma · ${_n(n(m['num_posts']))} posts · ${_n(n(m['num_comments']))} comments', style: style),
+                if ([m['total_karma'], m['num_posts'], m['num_comments']].any((v) => v is num))
+                  Text([
+                    if (m['total_karma'] is num) '${_n(n(m['total_karma']))} karma',
+                    if (m['num_posts'] is num) '${_n(n(m['num_posts']))} posts',
+                    if (m['num_comments'] is num) '${_n(n(m['num_comments']))} comments',
+                  ].join(' · '), style: style),
                 if (first > 0) Text('Active ${_age(first)}', style: style),
               ]);
             },

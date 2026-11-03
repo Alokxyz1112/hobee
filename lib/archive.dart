@@ -117,7 +117,12 @@ class Archive {
   /// ~1 request/second per host. Calls are queued, so parallel callers (archive page, profile query, user stats,
   /// karma) no longer read the same timestamp and fire together. Arctic Shift answers such bursts with
   /// HTTP 422 'Timeout. Maybe slow down a bit', which left the profile with no posts and no stats.
+  /// Tests turn this off: widget tests run on a fake clock, so real-time pacing would leave timers pending.
+  @visibleForTesting
+  static bool pacing = true;
+
   static Future<void> _pace(String host) {
+    if (!pacing) return Future<void>.value();
     final prev = _gate[host] ?? Future<void>.value();
     final mine = prev.then((_) async {
       final l = _last[host];

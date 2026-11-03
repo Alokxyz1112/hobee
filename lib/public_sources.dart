@@ -102,13 +102,36 @@ void _media(Map<String, dynamic> d, String? link, String? thumb) {
 
 class RedditRss {
   /// https://www.reddit.com/user/NAME/submitted/.rss?limit=100&after=t3_x (Atom). 200 from the box; 429 on bursts.
+  static final _cache = <String, (DateTime, PublicPage)>{};
+  static DateTime? _blockedUntil;
+  static const cacheFor = Duration(minutes: 10);
+
+  /// Seconds from a Retry-After header (delta form only), clamped to 1..30, default 5.
+  static int retryAfter(String? h) => (int.tryParse((h ?? '').trim()) ?? 5).clamp(1, 30);
+
   static Future<PublicPage> page(String name, String? after, String ua) async {
+    final key = '${name.toLowerCase()}|$after';
+    final hit = _cache[key];
+    if (hit != null && DateTime.now().difference(hit.$1) < cacheFor) return hit.$2;
+    final until = _blockedUntil;
+    if (until != null && DateTime.now().isBefore(until)) {
+      throw PublicFail('rate-limited (HTTP 429)', 'Reddit asked to wait; skipping RSS until $until');
+    }
     final u = Uri.https('www.reddit.com', '/user/$name/submitted/.rss', {'limit': '100', 'sort': 'new', 'after': ?after});
-    final r = await _get(u, ua, 'application/atom+xml');
+    var r = await _get(u, ua, 'application/atom+xml');
+    if (r.statusCode == 429) {
+      // Honour Retry-After once, then give up quietly and stay off RSS for a while.
+      final wait = retryAfter(r.headers['retry-after']);
+      await Future.delayed(Duration(seconds: wait));
+      r = await _get(u, ua, 'application/atom+xml');
+      if (r.statusCode == 429) _blockedUntil = DateTime.now().add(Duration(seconds: retryAfter(r.headers['retry-after']) * 20));
+    }
     _check(r, u);
     final body = r.body;
     if (!body.contains('<feed')) throw PublicFail('unexpected response (not Atom)', 'from $u\n${_snip(body)}');
-    return parse(body, name);
+    final p = parse(body, name);
+    _cache[key] = (DateTime.now(), p);
+    return p;
   }
 
   static PublicPage parse(String body, String name) {
@@ -200,6 +223,12 @@ class Redlib {
     return PublicPage(rows, next, host);
   }
 
+  /// Anubis / "verifying your browser" interstitials that some instances serve instead of the listing.
+  static bool isChallenge(String body) {
+    final t = body.length > 4000 ? body.substring(0, 4000).toLowerCase() : body.toLowerCase();
+    return t.contains('not a bot') || t.contains('verifying your browser') || t.contains('anubis');
+  }
+
   /// Tries the preferred instance, then the next ones, until one returns a real listing.
   static Future<PublicPage> page(String name, String? after, String ua) async {
     final fails = <String>[];
@@ -208,11 +237,15 @@ class Redlib {
       try {
         final r = await _get(u, ua, 'text/html');
         _check(r, u);
+        if (Redlib.isChallenge(r.body)) {
+          throw PublicFail('bot check page', 'from $u\n${_snip(r.body)}');
+        }
         if (!r.body.contains('class="post') && !r.body.contains('id="posts"')) {
           throw PublicFail('no listing (challenge/blocked page)', 'from $u\n${_snip(r.body)}');
         }
         final p = parse(base, r.body, name);
-        if (p.rows.isEmpty && after == null && !r.body.contains('id="posts"')) {
+        // An empty first page usually means a broken parse or an instance hiding the user: try the next one.
+        if (p.rows.isEmpty && after == null) {
           throw PublicFail('empty page', 'from $u');
         }
         return p;

@@ -83,7 +83,7 @@ The photos are nature posts from a public profile. You can see real source error
 
 ## Install
 
-1. Download `Hobee-1.6.2.apk` from the [Releases](../../releases) page.
+1. Download `Hobee-1.6.3.apk` from the [Releases](../../releases) page.
 2. Open it on your phone and allow "install unknown apps" for your browser or file manager.
 3. That's it. Deep Search works straight away without logging in.
 
@@ -357,6 +357,7 @@ Some of what went wrong while building this. All of these actually happened.
 ## Changelog
 
 - **1.6.2**: Profiles load again: archive requests are queued so Arctic Shift no longer refuses them, with retries and time limits everywhere. Expired preview images fall back to the original and never crash. Fixes for the disposed image stream crash and false safe mode starts.
+- **1.6.3**: Cleaner profile and archive screen: a short summary line with a collapsible source list, friendly wording for sources that are blocked or busy, and a source that returns nothing no longer shows as a green success. Redlib skips bot check pages and empty results and tries the next instance. Reddit RSS waits as asked when busy, caches results for 10 minutes and does not retry in a loop. The profile stats line hides when the stats are unknown.
 - **1.6.1**: Deep search pages through full history. Tappable usernames and a Users view. Keyword relevance search. Crash fixes and a safe mode. Dead images are hidden. The next page loads automatically. Faster duplicate removal and parallel fetching. The image enhancer is removed. Suggestions and search are simpler, with no filter panels.
 - **1.3.12**: Cleaner pictures before upscaling. Reddit recompresses uploads (even the "original" i.redd.it files come out around JPEG quality 80 with half size color), and the upscaler used to blow up the blocks and the blocky, bleeding reds. Now Hobee reads the JPEG's own stored data (the quant tables and the DCT numbers per 8x8 block), smooths only within the range the file allows, so real grain and skin texture stay, and rebuilds the color layer using the brightness edges so reds stop smearing. Upscaling also always grabs the original upload, even with Original quality off, and phone photos with a rotation flag no longer come out sideways.
 - **1.3.11**: Upscaler overhaul. New Fast and Ultra models that are faster and keep colors and skin tones true, runs on the phone's NPU or GPU when it can, a time estimate in the picker, Natural or Sharp look, Restore color and Film grain options, and automatic cleanup for heavily compressed JPEGs.

@@ -225,30 +225,20 @@ class DeepStatusPanel extends StatelessWidget {
                     ? 'Found ${all.length} post${all.length == 1 ? '' : 's'}, all text, no media$oldest'
                     : '${all.length} archived posts · $media with media${text > 0 ? ' · $text text' : ''}$oldest';
         final errs = st.where((s) => !s.ok).toList();
+        final anyPosts = all.isNotEmpty || st.any((s) => (s.count ?? 0) > 0);
+        final working = st.where((s) => s.ok && (s.count ?? 0) > 0).length;
+        final sourcesTitle = st.isEmpty ? '' : sourcesSummary(st, anyPosts);
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           if (bulk) const LinearProgressIndicator(),
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 6, 4, 2),
+            padding: const EdgeInsets.fromLTRB(12, 6, 4, 0),
             child: Row(children: [
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  for (final s in st)
-                    Row(children: [
-                      Icon(s.ok ? Icons.check_circle_outline : Icons.error_outline, size: 14, color: s.ok ? Colors.green.shade600 : cs.error),
-                      const SizedBox(width: 4),
-                      Expanded(child: Text(
-                        s.ok ? '${s.label}: ${s.count == 0 ? '0 posts found for this user' : '${s.count} posts on this page'}' : '${s.label}: ${s.error}',
-                        style: small)),
-                    ]),
-                  const SizedBox(height: 2),
-                  Text(summary, style: small.copyWith(fontWeight: FontWeight.w600)),
-                ]),
-              ),
+              Expanded(child: Text(summary, style: small.copyWith(fontWeight: FontWeight.w600, color: cs.onSurface))),
               if (bulk)
                 TextButton(onPressed: onCancel, child: const Text('Cancel'))
               else ...[
-                if (errs.isNotEmpty || error != null) TextButton(onPressed: onRetry, child: const Text('Retry')),
-                if (!done && errs.isEmpty) TextButton(onPressed: onFetchAll, child: const Text('Fetch all')),
+                if ((errs.isNotEmpty && working == 0) || error != null) TextButton(onPressed: onRetry, child: const Text('Retry')),
+                if (!done && errs.isEmpty && all.isNotEmpty) TextButton(onPressed: onFetchAll, child: const Text('Load all')),
               ],
             ]),
           ),
@@ -257,19 +247,39 @@ class DeepStatusPanel extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 8),
               child: Align(alignment: Alignment.centerLeft, child: TextButton.icon(onPressed: onShowText, icon: const Icon(Icons.notes, size: 18), label: const Text('Show text posts'))),
             ),
-          if (errs.isNotEmpty)
+          if (st.isNotEmpty)
             Theme(
               data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
               child: ExpansionTile(
                 dense: true,
                 visualDensity: VisualDensity.compact,
                 tilePadding: const EdgeInsets.symmetric(horizontal: 12),
-                title: Text('Error details', style: small),
+                childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+                expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                title: Text(sourcesTitle, style: small),
                 children: [
-                  for (final s in errs)
+                  for (final s in st)
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                      child: SelectableText('${s.label}: ${s.detail ?? s.error}', style: small.copyWith(fontFamily: 'monospace', fontSize: 11)),
+                      padding: const EdgeInsets.symmetric(vertical: 1),
+                      child: Row(children: [
+                        Icon(_icon(s, anyPosts), size: 14, color: _color(s, anyPosts, cs)),
+                        const SizedBox(width: 6),
+                        Expanded(child: Text(sourceLine(s, anyPosts), style: small)),
+                      ]),
+                    ),
+                  if (errs.isNotEmpty)
+                    ExpansionTile(
+                      dense: true,
+                      visualDensity: VisualDensity.compact,
+                      tilePadding: EdgeInsets.zero,
+                      title: Text('Technical details', style: small.copyWith(fontSize: 11)),
+                      children: [
+                        for (final s in errs)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: SelectableText('${s.label}: ${s.detail ?? s.error}', style: small.copyWith(fontFamily: 'monospace', fontSize: 11)),
+                          ),
+                      ],
                     ),
                 ],
               ),
@@ -278,6 +288,50 @@ class DeepStatusPanel extends StatelessWidget {
       },
     );
   }
+
+  static IconData _icon(ProviderStatus s, bool anyPosts) {
+    if (!s.ok) return Icons.remove_circle_outline;
+    if ((s.count ?? 0) > 0) return Icons.check_circle_outline;
+    return anyPosts ? Icons.help_outline : Icons.radio_button_unchecked;
+  }
+
+  static Color _color(ProviderStatus s, bool anyPosts, ColorScheme cs) {
+    if (s.ok && (s.count ?? 0) > 0) return Colors.green.shade600;
+    if (s.ok && anyPosts) return Colors.orange.shade700;
+    return cs.outline;
+  }
+}
+
+/// Friendly one-line reason for a source that did not answer.
+String friendlyError(String? e) {
+  final t = (e ?? '').toLowerCase();
+  if (t.contains('429') || t.contains('rate')) return 'busy right now, will work later';
+  if (t.contains('403') || t.contains('blocked')) return 'blocked from this network';
+  if (t.contains('timed out') || t.contains('timeout')) return 'too slow to answer';
+  if (t.contains('network')) return 'could not connect';
+  if (t.contains('404')) return 'not found';
+  return 'not available right now';
+}
+
+/// One status row, e.g. 'Arctic Shift: 8 posts in the last batch'.
+String sourceLine(ProviderStatus s, bool anyPosts) {
+  if (!s.ok) return '${s.label}: ${friendlyError(s.error)}';
+  final n = s.count ?? 0;
+  if (n == 0) return anyPosts ? '${s.label}: returned nothing (may hide this user)' : '${s.label}: no posts found';
+  return '${s.label}: $n post${n == 1 ? '' : 's'} in the last batch';
+}
+
+/// Collapsed title of the source list, e.g. 'Sources: 1 working, 3 unavailable'.
+String sourcesSummary(List<ProviderStatus> st, bool anyPosts) {
+  final good = st.where((s) => s.ok && (s.count ?? 0) > 0).length;
+  final empty = st.where((s) => s.ok && (s.count ?? 0) == 0).length;
+  final bad = st.where((s) => !s.ok).length;
+  final parts = [
+    if (good > 0) '$good working',
+    if (empty > 0) '$empty empty',
+    if (bad > 0) '$bad unavailable',
+  ];
+  return 'Sources: ${parts.join(', ')}';
 }
 
 /// Small "x3" badge for collapsed duplicates.
