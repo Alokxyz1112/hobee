@@ -83,7 +83,7 @@ The photos are nature posts from a public profile. You can see real source error
 
 ## Install
 
-1. Download `Hobee-1.6.4.apk` from the [Releases](../../releases) page.
+1. Download `Hobee-1.6.4-arm64.apk` (most phones) or `Hobee-1.6.4-armv7.apk` (older 32-bit phones) from the [Releases](../../releases) page.
 2. Open it on your phone and allow "install unknown apps" for your browser or file manager.
 3. That's it. Deep Search works straight away without logging in.
 
