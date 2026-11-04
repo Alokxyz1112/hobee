@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'list_footer.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'glass.dart';
 import 'api.dart';
@@ -248,7 +249,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
   int _auto = 0;
   Future<void> _more({bool auto = false}) async {
     if (loading || done) return;
-    if (!auto) { _auto = 0; _noGrow = 0; }
+    if (!auto) { _auto = 0; _noGrow = 0; _bg = 0; }
     final before = entries.length;
     final src = effectiveSource();
     setState(() { loading = true; error = null; });
@@ -267,7 +268,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
         // Keep fetching if this page had no media but more pages exist.
         again = !done && sc.hasClients && sc.position.maxScrollExtent < 600 && dateRange.value == null && _auto < 6;
         // Keyword search on a subreddit: keep paging in the background until enough good matches.
-        if (!done && !again && isSubSearch(src) && Rel.active && entries.length < 40 && _bg < 10) {
+        if (!done && !again && isSubSearch(src) && Rel.active && entries.length < 40 && _bg < (entries.isEmpty ? 20 : 10)) {
           _bg++;
           again = true;
         }
@@ -461,19 +462,16 @@ class _GalleryScreenState extends State<GalleryScreen> {
                 ),
               ]),
             SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Center(
-                  child: loading
-                      ? const CircularProgressIndicator()
-                      : error != null
-                          ? Column(children: [Text(error!, textAlign: TextAlign.center), TextButton(onPressed: _more, child: const Text('Retry'))])
-                          : done
-                              ? (entries.isEmpty && textish && _all.any((p) => p.media.isEmpty)
-                                  ? TextButton.icon(onPressed: () => applyLayout(PostLayout.card), icon: const Icon(Icons.view_agenda_outlined), label: const Text('Text posts show in Card / Compact layout'))
-                                  : Text(entries.isEmpty ? (_all.isEmpty ? (deep ? 'No archived posts' : 'No media here') : (_all.every((p) => p.media.isEmpty) ? 'All posts are text, no media' : 'Nothing matches these filters')) : 'No more posts'))
-                              : TextButton(onPressed: _more, child: const Text('Load more')),
-                ),
+              child: ListFooter(
+                loading: loading,
+                error: error,
+                done: done,
+                empty: entries.isEmpty,
+                searching: isSubSearch(effectiveSource()),
+                onMore: _more,
+                doneChild: entries.isEmpty && textish && _all.any((p) => p.media.isEmpty)
+                    ? TextButton.icon(onPressed: () => applyLayout(PostLayout.card), icon: const Icon(Icons.view_agenda_outlined), label: const Text('Text posts show in Card / Compact layout'))
+                    : Text(entries.isEmpty ? (_all.isEmpty ? (deep ? 'No archived posts' : 'No media here') : (_all.every((p) => p.media.isEmpty) ? 'All posts are text, no media' : 'Nothing matches these filters')) : 'No more posts', textAlign: TextAlign.center),
               ),
             ),
             SliverToBoxAdapter(child: SizedBox(height: MediaQuery.paddingOf(context).bottom + 4)),

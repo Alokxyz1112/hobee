@@ -2,6 +2,7 @@ import 'keyword_ui.dart';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'list_footer.dart';
 import 'glass.dart';
 import 'api.dart';
 import 'archive.dart';
@@ -110,7 +111,7 @@ class _FeedScreenState extends State<FeedScreen> {
     final src = effectiveSource();
     var switched = false;
     try {
-      await Api.fetchMore(src);
+      await Api.fetchMore(src).timeout(const Duration(seconds: 120), onTimeout: () => throw TimeoutException('No response in 2 minutes, tap Retry'));
       final (_, d) = await Db.cursor(src);
       final p = await Db.load(src);
       if (src == effectiveSource()) { _all = p; posts = _filter(p); done = d; }
@@ -190,19 +191,15 @@ class _FeedScreenState extends State<FeedScreen> {
             }
             final i = top ? i0 - 1 : i0;
             if (i == posts.length) {
-              return Padding(
-                padding: const EdgeInsets.all(24),
-                child: Center(
-                  child: loading
-                      ? const CircularProgressIndicator()
-                      : error != null
-                          ? TextButton(onPressed: _more, child: Text('Error. Tap to retry\n$error', textAlign: TextAlign.center))
-                          : done
-                              ? Text(posts.isEmpty
-                                  ? (_all.isEmpty ? 'Nothing here' : (_all.every((p) => p.media.isEmpty) && !textish ? 'All posts are text. Pick the Text filter' : 'Nothing matches these filters'))
-                                  : 'No more posts')
-                              : TextButton(onPressed: _more, child: const Text('Load more')),
-                ),
+              return ListFooter(
+                loading: loading,
+                error: error,
+                done: done,
+                empty: posts.isEmpty,
+                onMore: _more,
+                doneChild: Text(posts.isEmpty
+                    ? (_all.isEmpty ? 'Nothing here' : (_all.every((p) => p.media.isEmpty) && !textish ? 'All posts are text. Pick the Text filter' : 'Nothing matches these filters'))
+                    : 'No more posts', textAlign: TextAlign.center),
               );
             }
             final p = posts[i];

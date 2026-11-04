@@ -57,7 +57,7 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() { loading = true; error = null; });
     try {
       final j = await Api.get(users ? '/users/search' : '/subreddits/search', {'q': n, 'limit': '25'});
-      if (g != _gen) return;
+      if (g != _gen || !mounted) return;
       results = [
         for (final c in j['data']['children'] as List)
           if (!_adult(Map<String, dynamic>.from(c['data']))) Map<String, dynamic>.from(c['data'])

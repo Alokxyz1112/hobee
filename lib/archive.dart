@@ -9,7 +9,7 @@ import 'db.dart';
 import 'models.dart';
 import 'public_sources.dart';
 
-const appVersion = '1.6.2';
+const appVersion = '1.6.4';
 const _ua = 'android:com.alok.hobee:v$appVersion (gallery app)';
 
 /// Archive providers. Order + enabled state are user-configurable in Settings.
@@ -143,7 +143,7 @@ class Archive {
 
   /// [retries] > 0 also retries timeouts, network errors and 5xx with exponential backoff
   /// (used for deep account paging, where one hiccup must not stop the whole history).
-  static Future<List<Map<String, dynamic>>> _getJsonList(Uri u, {bool retry429 = false, Map<String, String> extra = const {}, int retries = 0}) async {
+  static Future<List<Map<String, dynamic>>> _getJsonList(Uri u, {bool retry429 = false, Map<String, String> extra = const {}, int retries = 0, bool retrySlow = true}) async {
     final maxAttempts = retries > 0 ? retries + 1 : 2;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       final last = attempt == maxAttempts - 1;
@@ -168,7 +168,7 @@ class Archive {
       }
       if (r.statusCode >= 500 && retries > 0 && !last) { await Future.delayed(backoff()); continue; }
       if (isSlowDown(r.statusCode, r.body)) {
-        if (!last) { await Future.delayed(backoff()); continue; }
+        if (!last && retrySlow) { await Future.delayed(backoff()); continue; }
         throw _Unavailable('busy (asked to slow down)', 'HTTP ${r.statusCode} from $u\n${_bodySnippet(r.body)}');
       }
       final detail = 'HTTP ${r.statusCode} from $u\n${_bodySnippet(r.body)}';
@@ -474,6 +474,11 @@ class Archive {
 
   /// One page of a subreddit's posts, newest first, from Arctic Shift. [title] is matched server side;
   /// if the archive times out on a keyword search we retry without it and match locally.
+  /// Arctic Shift keyword search keeps timing out under load; while this is in the future, skip it.
+  static DateTime? _titleOffUntil;
+  @visibleForTesting
+  static void resetKeywordState() => _titleOffUntil = null;
+
   static Future<List<Map<String, dynamic>>> subPage(String sub, {String? title, String? author, int? after, int? before}) async {
     Uri u(String? t) => Uri.https('arctic-shift.photon-reddit.com', '/api/posts/search', {
           'subreddit': sub,
@@ -484,10 +489,16 @@ class Archive {
           if (after != null) 'after': '$after',
           if (before != null) 'before': '$before',
         });
+    final keyword = title != null && title.isNotEmpty;
+    final off = _titleOffUntil;
+    final skipServer = keyword && off != null && DateTime.now().isBefore(off);
     try {
-      return await _getJsonList(u(title), retry429: true);
-    } on _Unavailable {
-      if (title == null || title.isEmpty) rethrow;
+      if (skipServer) throw _Unavailable('keyword search unavailable');
+      // A keyword query that times out server side won't succeed on retry; fall back at once.
+      return await _getJsonList(u(title), retry429: true, retrySlow: !keyword);
+    } on _Unavailable catch (e) {
+      if (!keyword) rethrow;
+      if (!skipServer && e.why.startsWith('busy')) _titleOffUntil = DateTime.now().add(const Duration(minutes: 10));
       final words = title.toLowerCase().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
       final rows = await _getJsonList(u(null), retry429: true);
       // Keep the page cursor honest: tag the oldest row so paging continues past filtered pages.

@@ -532,10 +532,16 @@ class SourceAndFilterBar extends StatelessWidget implements PreferredSizeWidget 
   @override
   Size get preferredSize => Size.fromHeight(sources ? 140 : 92);
   @override
-  Widget build(BuildContext context) => Column(children: [
-        if (sources) const SizedBox(height: 48, child: SourceBar()),
-        const SizedBox(height: 92, child: FilterBar()),
-      ]);
+  Widget build(BuildContext context) => MediaQuery.withClampedTextScaling(
+        // Fixed-height bar: cap huge system font sizes so chips and the search field are never cut off.
+        maxScaleFactor: 1.15,
+        child: ClipRect(
+          child: Column(children: [
+            if (sources) const SizedBox(height: 48, child: SourceBar()),
+            const SizedBox(height: 92, child: FilterBar()),
+          ]),
+        ),
+      );
 }
 
 Widget _row(BuildContext ctx, IconData icon, String label, VoidCallback onTap, {Widget? trailing}) => ListTile(

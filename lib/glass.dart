@@ -81,6 +81,8 @@ class GlassBar extends StatelessWidget {
   const GlassBar({super.key});
   @override
   Widget build(BuildContext context) => Glass(
+        // Mostly opaque: rows scrolled under the bar must not show through as ghost chips.
+        fill: Theme.of(context).colorScheme.surface.withValues(alpha: 0.92),
         border: Border(bottom: BorderSide(color: glassEdge(context), width: 1)),
         child: const SizedBox.expand(),
       );
