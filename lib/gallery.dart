@@ -395,7 +395,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
           ...widget.actions,
           IconButton(icon: const Icon(Icons.calendar_month), tooltip: 'Jump to month', onPressed: sections.isEmpty ? null : _jump),
           IconButton(
-            icon: const Icon(Icons.more_vert),
+            tooltip: 'More', icon: const Icon(Icons.more_vert),
             onPressed: () => showActionsSheet(context,
                 onRefresh: _refreshTop,
                 onTop: () => sc.hasClients ? sc.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut) : null,
@@ -446,7 +446,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
                           else
                           e.item.thumb.isEmpty
                               ? Container(color: cs.surfaceContainerHighest, child: const Icon(Icons.movie))
-                              : Image.network(e.item.thumb, fit: BoxFit.cover, cacheWidth: 360,
+                              : Image.network(e.item.thumb, fit: BoxFit.cover, cacheWidth: 360, gaplessPlayback: true,
+                                  semanticLabel: e.post.title,
+                                  frameBuilder: (_, child, frame, sync) => sync ? child : AnimatedOpacity(opacity: frame == null ? 0 : 1, duration: const Duration(milliseconds: 180), child: child),
                                   errorBuilder: (_, _, _) => Container(color: cs.surfaceContainerHighest, child: const Icon(Icons.broken_image))),
                           if (deep) Positioned(left: 4, bottom: 4, child: StatusBadge(e.post)),
                           if (!deep && e.index == 0) Positioned(left: 3, bottom: 3, right: 30, child: Align(alignment: Alignment.bottomLeft, child: TileAuthor(e.post.author))),

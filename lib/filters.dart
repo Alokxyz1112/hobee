@@ -639,7 +639,7 @@ Future<void> showFilterSheet(BuildContext context) => _sheet(context, (ctx) => L
           _row(ctx, Icons.date_range, r == null ? 'Date range…' : '${_d(r.start)} to ${_d(r.end)}', () async {
             Navigator.pop(ctx);
             await const FilterBar()._pickDate(context);
-          }, trailing: r == null ? null : IconButton(icon: const Icon(Icons.close), onPressed: () => dateRange.value = null)),
+          }, trailing: r == null ? null : IconButton(tooltip: 'Clear dates', icon: const Icon(Icons.close), onPressed: () => dateRange.value = null)),
         ]);
       },
     ));

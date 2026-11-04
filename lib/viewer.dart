@@ -86,7 +86,7 @@ class _ViewerState extends State<Viewer> {
                 if (e.post.media.length > 1)
                   IconButton(icon: const Icon(Icons.download_for_offline), tooltip: 'Download all', onPressed: () => _download(all: true)),
                 IconButton(
-                    icon: const Icon(Icons.open_in_new),
+                    tooltip: 'Open in browser', icon: const Icon(Icons.open_in_new),
                     onPressed: () => launchUrl(Uri.parse('https://www.reddit.com${e.post.permalink}'), mode: LaunchMode.externalApplication)),
               ],
             )

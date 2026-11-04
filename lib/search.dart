@@ -108,7 +108,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   isDense: true,
                   filled: true,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(28), borderSide: BorderSide.none),
-                  suffixIcon: q.text.isEmpty ? null : IconButton(icon: const Icon(Icons.close), onPressed: () { q.clear(); _changed(''); }),
+                  suffixIcon: q.text.isEmpty ? null : IconButton(tooltip: 'Clear', icon: const Icon(Icons.close), onPressed: () { q.clear(); _changed(''); }),
                 ),
               ),
               const SizedBox(height: 8),
@@ -152,7 +152,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 ListTile(
                   leading: Icon(r.startsWith('u/') ? Icons.person_outline : Icons.forum_outlined),
                   title: Text(r),
-                  trailing: IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => Recents.remove(Recents.search, r)),
+                  trailing: IconButton(tooltip: 'Remove', icon: const Icon(Icons.close, size: 18), onPressed: () => Recents.remove(Recents.search, r)),
                   onTap: () => _open(r.substring(2), r.startsWith('u/')),
                 ),
             ],

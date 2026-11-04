@@ -9,7 +9,7 @@ import 'db.dart';
 import 'models.dart';
 import 'public_sources.dart';
 
-const appVersion = '1.6.4';
+const appVersion = '1.6.5';
 const _ua = 'android:com.alok.hobee:v$appVersion (gallery app)';
 
 /// Archive providers. Order + enabled state are user-configurable in Settings.

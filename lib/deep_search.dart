@@ -700,7 +700,7 @@ Future<void> showAccountSwitcher(BuildContext context, String current) {
                   prefixText: 'u/',
                   hintText: 'Switch to any username',
                   border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(icon: const Icon(Icons.manage_search), onPressed: go),
+                  suffixIcon: IconButton(tooltip: 'Search', icon: const Icon(Icons.manage_search), onPressed: go),
                 ),
               ),
               const SizedBox(height: 12),

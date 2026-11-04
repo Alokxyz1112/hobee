@@ -281,7 +281,7 @@ class _VideoPageState extends State<VideoPage> {
                   color: Colors.black45,
                   shape: const CircleBorder(),
                   child: IconButton(
-                    iconSize: 56,
+                    iconSize: 56, tooltip: val.isPlaying ? 'Pause' : 'Play',
                     icon: Icon(val.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, color: Colors.white),
                     onPressed: () {
                       if (val.isPlaying) {

@@ -155,7 +155,7 @@ class _FeedScreenState extends State<FeedScreen> {
         actions: [
           ...widget.actions,
           IconButton(
-            icon: const Icon(Icons.more_vert),
+            tooltip: 'More', icon: const Icon(Icons.more_vert),
             onPressed: () => showActionsSheet(context,
                 onRefresh: _refresh,
                 onTop: () {
@@ -245,8 +245,12 @@ class _FeedScreenState extends State<FeedScreen> {
                         constraints: const BoxConstraints(maxHeight: 420),
                         child: isDeep(effectiveSource())
                             ? SizedBox(width: double.infinity, height: 300, child: ArchiveImage(key: ValueKey(m.thumb), post: p, item: m, deep: true))
-                            : Image.network(m.thumb, width: double.infinity, fit: BoxFit.cover, cacheWidth: 1080,
-                                errorBuilder: (_, _, _) => const SizedBox(height: 0)),
+                            : Image.network(m.thumb, width: double.infinity, fit: BoxFit.cover, cacheWidth: 1080, semanticLabel: p.title,
+                                // Hold some space while loading so the list doesn't jump as images arrive.
+                                loadingBuilder: (_, child, prog) => prog == null ? child : Container(height: 220, color: cs.surfaceContainerHighest, alignment: Alignment.center,
+                                    child: const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))),
+                                errorBuilder: (_, _, _) => Container(height: 120, color: cs.surfaceContainerHighest, alignment: Alignment.center,
+                                    child: Icon(Icons.broken_image_outlined, color: cs.onSurfaceVariant, semanticLabel: 'Image failed to load'))),
                       ),
                       if (m.type != MediaType.image)
                         const Positioned.fill(child: Center(child: Icon(Icons.play_circle_fill, size: 56, color: Colors.white))),
