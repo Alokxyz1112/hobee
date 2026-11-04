@@ -9,6 +9,8 @@ import 'archive.dart';
 import 'archive_ui.dart';
 import 'db.dart';
 import 'dedupe.dart';
+import 'crash_log.dart';
+import 'load_all.dart';
 import 'filters.dart';
 import 'sub_search.dart';
 import 'sub_users.dart';
@@ -297,25 +299,44 @@ class _GalleryScreenState extends State<GalleryScreen> {
     if (again && mounted) { _auto++; await _more(auto: true); } else { _checkEndSoon(); }
   }
 
+  int bulkAdded = 0;
   Future<void> _loadAll() async {
+    if (bulk) return;
     final src = effectiveSource();
-    setState(() { bulk = true; cancel = false; bulkPages = 0; });
-    var fails = 0;
-    while (!done && mounted && !cancel && src == effectiveSource()) {
-      await _more();
-      if (!mounted) break;
-      if (error != null) {
-        // A page failed even after its own retries: wait and try again a few times before giving up.
-        if (++fails > 3) break;
-        await Future.delayed(Duration(seconds: 10 * fails));
-        if (!mounted || cancel) break;
-        setState(() => error = null);
-        continue;
-      }
-      fails = 0;
-      setState(() => bulkPages++);
+    setState(() { bulk = true; cancel = false; bulkPages = 0; bulkAdded = 0; error = null; });
+    _retryT?.cancel();
+    // A page may already be loading (scroll or auto load). Wait for it instead of spinning on it.
+    for (var i = 0; i < 300 && loading && mounted && !cancel; i++) {
+      await Future.delayed(const Duration(milliseconds: 200));
     }
-    if (mounted) setState(() => bulk = false);
+    bool gone() => !mounted || cancel || src != effectiveSource();
+    final runner = LoadAllRunner(
+      stopped: gone,
+      fetch: () async {
+        final n = await Api.fetchMore(src);
+        final (_, d) = await Db.cursor(src);
+        return (added: n, done: n < 0 || d);
+      },
+      onRefresh: () async { if (!gone()) await _fromDb(); },
+      onProgress: (p) { if (!gone()) setState(() { bulkPages = p.pages; bulkAdded = p.added; }); },
+    );
+    LoadAllEnd end;
+    try {
+      end = await runner.run();
+    } catch (e, st) {
+      CrashLog.record(e, st, 'loadAll');
+      end = LoadAllEnd.gaveUp;
+    }
+    if (!mounted) return;
+    if (src == effectiveSource()) {
+      final (_, d) = await Db.cursor(src);
+      if (!mounted) return;
+      done = d;
+    }
+    setState(() {
+      bulk = false;
+      if (end == LoadAllEnd.gaveUp) error = 'Loading stopped after repeated errors. Tap Retry to carry on.';
+    });
   }
 
   String get _oldest {
@@ -421,6 +442,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                   onRetry: () { setState(() => error = null); _refreshTop(); },
                   onFetchAll: _loadAll,
                   onCancel: () => setState(() => cancel = true),
+                  bulkAdded: bulkAdded,
                   onShowText: () { mediaFilter.value = MediaFilter.text; applyLayout(PostLayout.card); },
                 ),
               ),

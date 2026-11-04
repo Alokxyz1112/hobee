@@ -1,3 +1,4 @@
+import 'error_text.dart';
 import 'clean_image.dart' show withRedditOriginals;
 import 'package:flutter/material.dart';
 import 'archive.dart';
@@ -201,11 +202,11 @@ class StatusBadge extends StatelessWidget {
 class DeepStatusPanel extends StatelessWidget {
   final List<Post> all;
   final bool bulk, done;
-  final int bulkPages;
+  final int bulkPages, bulkAdded;
   final String oldest;
   final VoidCallback onRetry, onFetchAll, onCancel, onShowText;
   final String? error;
-  const DeepStatusPanel({super.key, required this.all, required this.bulk, required this.done, required this.bulkPages, required this.oldest,
+  const DeepStatusPanel({super.key, required this.all, required this.bulk, required this.done, required this.bulkPages, this.bulkAdded = 0, required this.oldest,
       required this.onRetry, required this.onFetchAll, required this.onCancel, required this.onShowText, this.error});
 
   @override
@@ -218,7 +219,7 @@ class DeepStatusPanel extends StatelessWidget {
         final media = all.where((p) => p.media.isNotEmpty).length;
         final text = all.length - media;
         final summary = bulk
-            ? 'Paging archives: $bulkPages page${bulkPages == 1 ? '' : 's'}$oldest'
+            ? 'Loading all: ${all.length} posts, $bulkPages page${bulkPages == 1 ? '' : 's'}${bulkAdded > 0 ? ' (+$bulkAdded)' : ''}$oldest'
             : all.isEmpty
                 ? (done ? 'No archived posts found for this user' : 'No archived posts loaded yet')
                 : media == 0
@@ -235,10 +236,10 @@ class DeepStatusPanel extends StatelessWidget {
             child: Row(children: [
               Expanded(child: Text(summary, style: small.copyWith(fontWeight: FontWeight.w600, color: cs.onSurface))),
               if (bulk)
-                TextButton(onPressed: onCancel, child: const Text('Cancel'))
+                TextButton(key: const Key('load-all-stop'), onPressed: onCancel, child: const Text('Stop'))
               else ...[
                 if ((errs.isNotEmpty && working == 0) || error != null) TextButton(onPressed: onRetry, child: const Text('Retry')),
-                if (!done && errs.isEmpty && all.isNotEmpty) TextButton(onPressed: onFetchAll, child: const Text('Load all')),
+                if (!done && all.isNotEmpty && (errs.isEmpty || working > 0)) TextButton(key: const Key('load-all'), onPressed: onFetchAll, child: const Text('Load all')),
               ],
             ]),
           ),
@@ -277,7 +278,7 @@ class DeepStatusPanel extends StatelessWidget {
                         for (final s in errs)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 8),
-                            child: SelectableText('${s.label}: ${s.detail ?? s.error}', style: small.copyWith(fontFamily: 'monospace', fontSize: 11)),
+                            child: SelectableText(detailLine(s.label, s.detail ?? s.error ?? ''), style: small.copyWith(fontFamily: 'monospace', fontSize: 11)),
                           ),
                       ],
                     ),

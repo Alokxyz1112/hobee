@@ -232,11 +232,13 @@ class Dedupe {
   static int? cachedHash(String url) => _mem[url];
   static bool known(String url) => _mem.containsKey(url);
   static const maxPerPost = _maxPerPost;
+  static const maxHashBytes = 2 << 20;
 
   static Future<int?> _hashUrl(String url) async {
     try {
       final r = await http.get(Uri.parse(url), headers: {'User-Agent': 'android:com.alok.hobee:v1.3.7 (personal gallery app)'}).timeout(const Duration(seconds: 15));
-      if (r.statusCode != 200 || r.bodyBytes.isEmpty) return null;
+      // Big files (full size photos, long GIFs) would need a lot of memory to decode; they are skipped.
+      if (r.statusCode != 200 || r.bodyBytes.isEmpty || r.bodyBytes.length > maxHashBytes) return null;
       return await compute(dHash, r.bodyBytes);
     } catch (_) {
       return null;
@@ -246,7 +248,8 @@ class Dedupe {
 
 /// 64-bit difference hash: grayscale, resize to 9x8, bit = left pixel brighter than right.
 int? dHash(Uint8List bytes) {
-  final im = img.decodeImage(bytes);
+  if (bytes.length > Dedupe.maxHashBytes) return null;
+  final im = img.decodeImage(bytes, frame: 0); // first frame only, never every frame of a GIF
   if (im == null) return null;
   final s = img.copyResize(img.grayscale(im), width: 9, height: 8, interpolation: img.Interpolation.average);
   var h = 0;

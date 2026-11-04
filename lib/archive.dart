@@ -1,3 +1,4 @@
+import 'error_text.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -10,7 +11,7 @@ import 'find.dart';
 import 'models.dart';
 import 'public_sources.dart';
 
-const appVersion = '1.6.6';
+const appVersion = '1.6.7';
 const _ua = 'android:com.alok.hobee:v$appVersion (gallery app)';
 
 /// Archive providers. Order + enabled state are user-configurable in Settings.
@@ -91,10 +92,7 @@ class _Unavailable implements Exception {
   String toString() => why;
 }
 
-String _bodySnippet(String b) {
-  final t = b.replaceAll(RegExp(r'\s+'), ' ').trim();
-  return t.length > 300 ? '${t.substring(0, 300)}…' : t;
-}
+String _bodySnippet(String b) => bodySnippet(b);
 
 /// Source key: "deep:NAME" or "deep:NAME@SUB".
 bool isDeep(String source) => source.startsWith('deep:');

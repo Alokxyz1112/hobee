@@ -83,7 +83,7 @@ The photos are nature posts from a public profile. You can see real source error
 
 ## Install
 
-1. Download `Hobee-1.6.6.apk` from the [Releases](../../releases) page. It works on every phone.
+1. Download `Hobee-1.6.7.apk` from the [Releases](../../releases) page. It works on every phone.
 2. Open it on your phone and allow "install unknown apps" for your browser or file manager.
 3. That's it. Deep Search works straight away without logging in.
 
@@ -357,6 +357,7 @@ Some of what went wrong while building this. All of these actually happened.
 ## Changelog
 
 - **1.6.2**: Profiles load again: archive requests are queued so Arctic Shift no longer refuses them, with retries and time limits everywhere. Expired preview images fall back to the original and never crash. Fixes for the disposed image stream crash and false safe mode starts.
+- **1.6.7**: Load all is steadier on big profiles and subreddits. It loads one page at a time, shows how many posts it has and how far back, has a Stop button, and carries on past a busy source instead of freezing. Lower memory use while loading. Technical details are shorter and easier to read.
 - **1.6.6**: Subreddit search finds more. It looks through titles, text, flair, authors and links, keeps searching older posts on its own until it finds matches, and shows how far back it has checked. Text post matches can be shown with one tap, and words typed in the filter box can search the whole subreddit. Steadier paging when the archive is slow.
 - **1.6.5**: One APK for every phone again. Feed images hold their space while loading and show a clear placeholder if they fail, grid thumbnails fade in smoothly, and buttons that only had an icon now have spoken labels for screen readers.
 - **1.6.4**: Subreddit keyword search works again: when the archive times out on a keyword search, Hobee now switches straight to checking recent posts itself instead of waiting on retries, and keeps paging until it finds matches. Empty lists show a clear searching, no matches or error state with Retry instead of a lone Load more button. The top bar hides rows scrolled under it, and the filter bar no longer gets cut off with large system fonts. Fewer stuck spinners.

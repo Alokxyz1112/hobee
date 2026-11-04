@@ -20,6 +20,8 @@ class CrashLog {
       FlutterError.presentError(d);
       record(d.exception, d.stack, 'flutter');
     };
+    // A widget that fails to build shows a small placeholder instead of a red or grey screen.
+    ErrorWidget.builder = (d) => const Center(child: Icon(Icons.error_outline, size: 20, color: Colors.grey));
     PlatformDispatcher.instance.onError = (e, s) {
       record(e, s, 'platform');
       return true;

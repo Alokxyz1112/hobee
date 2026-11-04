@@ -1,3 +1,4 @@
+import 'error_text.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -53,10 +54,7 @@ class RedlibConfig {
   }
 }
 
-String _snip(String b) {
-  final t = b.replaceAll(RegExp(r'\s+'), ' ').trim();
-  return t.length > 300 ? '${t.substring(0, 300)}…' : t;
-}
+String _snip(String b) => bodySnippet(b);
 
 String _unhtml(String s) => s
     .replaceAll('&lt;', '<')
@@ -115,7 +113,7 @@ class RedditRss {
     if (hit != null && DateTime.now().difference(hit.$1) < cacheFor) return hit.$2;
     final until = _blockedUntil;
     if (until != null && DateTime.now().isBefore(until)) {
-      throw PublicFail('rate-limited (HTTP 429)', 'Reddit asked to wait; skipping RSS until $until');
+      throw PublicFail('rate-limited (HTTP 429)', 'Reddit asked to wait; skipping RSS until ${shortTime(until)}');
     }
     final u = Uri.https('www.reddit.com', '/user/$name/submitted/.rss', {'limit': '100', 'sort': 'new', 'after': ?after});
     var r = await _get(u, ua, 'application/atom+xml');

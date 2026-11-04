@@ -54,10 +54,10 @@ Future<void> _main() async {
   await _safe('suggest', () async => sp.remove('suggestPrefs'));
   await _safe('video', VideoPrefs.load);
   await _safe('auth', Auth.i.init);
-  // Thumbs are decoded at display size (cacheWidth), so 160 MB holds plenty without OOM pressure on big lists.
+  // Thumbs are decoded at display size (cacheWidth), so 120 MB holds plenty without OOM pressure on big lists.
   PaintingBinding.instance.imageCache
-    ..maximumSizeBytes = 160 << 20
-    ..maximumSize = 1000;
+    ..maximumSizeBytes = 120 << 20
+    ..maximumSize = 600;
   runApp(const HobeeApp());
   // Startup counts as finished once the first frames are on screen. The old fixed 6 s timer also fired safe
   // mode when the app was simply closed or swiped away during those first seconds.
