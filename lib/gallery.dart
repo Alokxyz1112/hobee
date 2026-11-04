@@ -136,6 +136,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     }
     _loaded = src;
     _bg = 0;
+    _bgStart = DateTime.now();
     await _fromDb();
     final (_, d) = await Db.cursor(src);
     if (!mounted || src != effectiveSource()) return;
@@ -173,7 +174,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
     _rebuildT = Timer(const Duration(milliseconds: 150), _rebuild);
   }
 
-  int _bg = 0;
+  int _bg = 0, _shown = 0, _textHits = 0;
+  DateTime _bgStart = DateTime.now();
   bool _anchor = false;
   void _viewedChanged() {
     if (!isSubSearch(effectiveSource()) && !isSubSearch(_loaded ?? '')) return;
@@ -188,6 +190,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
     final g = hideGone.value ? MediaCheck.gone.value : const <String>{};
     var shown = filterAndCount(_all);
     if (g.isNotEmpty) shown = shown.where((p) => !g.contains(p.id)).toList();
+    _shown = shown.length;
+    _textHits = textish ? 0 : shown.where((p) => p.media.isEmpty).length;
     var cp = <String, List<Post>>{};
     if (dupesOn && !textish) (shown, cp) = Dedupe.collapse(shown);
     copies = cp;
@@ -249,7 +253,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
   int _auto = 0;
   Future<void> _more({bool auto = false}) async {
     if (loading || done) return;
-    if (!auto) { _auto = 0; _noGrow = 0; _bg = 0; }
+    if (!auto) { _auto = 0; _noGrow = 0; _bg = 0; _bgStart = DateTime.now(); }
     final before = entries.length;
     final src = effectiveSource();
     setState(() { loading = true; error = null; });
@@ -267,8 +271,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
         await _fromDb();
         // Keep fetching if this page had no media but more pages exist.
         again = !done && sc.hasClients && sc.position.maxScrollExtent < 600 && dateRange.value == null && _auto < 6;
-        // Keyword search on a subreddit: keep paging in the background until enough good matches.
-        if (!done && !again && isSubSearch(src) && Rel.active && entries.length < 40 && _bg < (entries.isEmpty ? 20 : 10)) {
+        // Search on a subreddit: keep paging in the background until enough matches, for a while.
+        if (!done && !again && isSubSearch(src) && Rel.queryText().trim().isNotEmpty &&
+            keepSearching(shown: _shown, pages: _bg, spent: DateTime.now().difference(_bgStart))) {
           _bg++;
           again = true;
         }
@@ -463,13 +468,30 @@ class _GalleryScreenState extends State<GalleryScreen> {
                   }, childCount: s.idx.length),
                 ),
               ]),
+            if (_textHits > 0 && Rel.queryText().trim().isNotEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: Center(
+                    child: FilledButton.tonalIcon(
+                      key: const Key('show-text-hits'),
+                      onPressed: () => applyLayout(PostLayout.card),
+                      icon: const Icon(Icons.article_outlined),
+                      label: Text('$_textHits matching text post${_textHits == 1 ? '' : 's'}. Show them', textAlign: TextAlign.center),
+                    ),
+                  ),
+                ),
+              ),
             SliverToBoxAdapter(
               child: ListFooter(
                 loading: loading,
                 error: error,
                 done: done,
-                empty: entries.isEmpty,
-                searching: isSubSearch(effectiveSource()),
+                empty: entries.isEmpty && _textHits == 0,
+                searching: isSubSearch(effectiveSource()) && Rel.queryText().trim().isNotEmpty,
+                checkedTo: isSubSearch(effectiveSource()) ? oldestLabel(_all) : null,
+                widerLabel: widerQuery(effectiveSource(), searchQuery.value) == null ? null : 'Search all of r/${subParts(effectiveSource()).sub} for "${searchQuery.value.trim()}"',
+                onWider: () => searchWider(effectiveSource()),
                 onMore: _more,
                 doneChild: entries.isEmpty && textish && _all.any((p) => p.media.isEmpty)
                     ? TextButton.icon(onPressed: () => applyLayout(PostLayout.card), icon: const Icon(Icons.view_agenda_outlined), label: const Text('Text posts show in Card / Compact layout'))

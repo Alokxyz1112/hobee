@@ -67,7 +67,6 @@ class Post {
 
   static Post? fromJson(Map<String, dynamic> d) {
     if (d['title'] == null) return null; // comments etc.
-    if (d['over_18'] == true) return null; // adult posts are never shown in this build
     final media = parseMedia(d);
     return Post(d['id'] ?? d['name'], unesc(d['title'] ?? ''), d['subreddit'] ?? '', d['author'] ?? '',
         d['permalink'] ?? '', ((d['created_utc'] ?? 0) as num).toInt(), media, d);

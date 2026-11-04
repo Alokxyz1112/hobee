@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'sub_search.dart';
 import 'glass.dart';
 import 'api.dart';
+import 'filters.dart';
 import 'auth.dart';
 import 'main.dart';
 import 'nav.dart';
@@ -68,8 +69,9 @@ class _SearchScreenState extends State<SearchScreen> {
     if (mounted && g == _gen) setState(() => loading = false);
   }
 
-  /// Adult subreddits and profiles are never listed.
+  /// Adult subreddits and profiles are listed unless hidden in Settings.
   static bool _adult(Map<String, dynamic> d) {
+    if (!hideAdult.value) return false;
     final sub = d['subreddit'];
     return d['over18'] == true || d['over_18'] == true || (sub is Map && sub['over_18'] == true);
   }

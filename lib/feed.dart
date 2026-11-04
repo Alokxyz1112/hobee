@@ -105,8 +105,11 @@ class _FeedScreenState extends State<FeedScreen> {
     if (p.isEmpty) _more();
   }
 
-  Future<void> _more() async {
+  int _bg = 0;
+  DateTime _bgStart = DateTime.now();
+  Future<void> _more({bool auto = false}) async {
     if (loading || done) return;
+    if (!auto) { _bg = 0; _bgStart = DateTime.now(); }
     setState(() { loading = true; error = null; });
     final src = effectiveSource();
     var switched = false;
@@ -122,7 +125,13 @@ class _FeedScreenState extends State<FeedScreen> {
       if (mounted) setState(() => loading = false);
     }
     // Source changed while this page was loading: the new source's first page was skipped by the guard.
-    if (switched && mounted && _all.isEmpty) _more();
+    if (switched && mounted && _all.isEmpty) { _more(); return; }
+    // Search on a subreddit: keep paging older posts for a while instead of making the user tap.
+    if (mounted && !done && error == null && src == effectiveSource() && isSubSearch(src) && Rel.queryText().trim().isNotEmpty &&
+        keepSearching(shown: posts.length, pages: _bg, spent: DateTime.now().difference(_bgStart))) {
+      _bg++;
+      await _more(auto: true);
+    }
   }
 
   Future<void> _refresh() async {
@@ -196,6 +205,10 @@ class _FeedScreenState extends State<FeedScreen> {
                 error: error,
                 done: done,
                 empty: posts.isEmpty,
+                searching: isSubSearch(effectiveSource()) && Rel.queryText().trim().isNotEmpty,
+                checkedTo: isSubSearch(effectiveSource()) ? oldestLabel(_all) : null,
+                widerLabel: widerQuery(effectiveSource(), searchQuery.value) == null ? null : 'Search all of r/${subParts(effectiveSource()).sub} for "${searchQuery.value.trim()}"',
+                onWider: () => searchWider(effectiveSource()),
                 onMore: _more,
                 doneChild: Text(posts.isEmpty
                     ? (_all.isEmpty ? 'Nothing here' : (_all.every((p) => p.media.isEmpty) && !textish ? 'All posts are text. Pick the Text filter' : 'Nothing matches these filters'))

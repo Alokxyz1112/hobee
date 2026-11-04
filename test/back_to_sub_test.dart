@@ -9,6 +9,7 @@ void main() {
   testWidgets('back from a profile restores filters without a seek and marks the author viewed', (t) async {
     await t.pumpWidget(MaterialApp(scaffoldMessengerKey: messengerKey, home: const Scaffold()));
     initSubNav();
+    Viewed.hide.value = true; // the undo only matters when viewed users are hidden
     final range = DateTimeRange(start: DateTime(2024, 1, 1), end: DateTime(2024, 2, 1));
     dateRange.value = range;
     mediaFilter.value = MediaFilter.values.last;

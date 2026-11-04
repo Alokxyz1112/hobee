@@ -254,6 +254,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         const Divider(),
+        const ListTile(dense: true, title: Text('Content filters'), subtitle: Text('All off by default, so nothing is hidden.')),
+        ValueListenableBuilder(
+          valueListenable: hideAdult,
+          builder: (_, on, _) => SwitchListTile(
+            title: const Text('Hide 18+ posts'),
+            subtitle: const Text('Hides posts, subreddits and profiles marked 18+.'),
+            value: on,
+            onChanged: (v) => hideAdult.value = v,
+          ),
+        ),
+        ValueListenableBuilder(
+          valueListenable: Viewed.hide,
+          builder: (_, on, _) => SwitchListTile(
+            title: const Text('Hide viewed users'),
+            subtitle: const Text('Subreddit results skip people whose profile you already opened.'),
+            value: on,
+            onChanged: (v) => Viewed.hide.value = v,
+          ),
+        ),
+        ValueListenableBuilder(
+          valueListenable: hideDupesDeep,
+          builder: (_, on, _) => SwitchListTile(
+            title: const Text('Collapse duplicates in Deep Search'),
+            subtitle: const Text('Shows one tile for reposts of the same picture.'),
+            value: on,
+            onChanged: (v) => hideDupesDeep.value = v,
+          ),
+        ),
+        ValueListenableBuilder(
+          valueListenable: hideGone,
+          builder: (_, on, _) => SwitchListTile(
+            title: const Text('Hide gone pictures'),
+            subtitle: const Text('Deep Search skips tiles whose picture was deleted everywhere.'),
+            value: on,
+            onChanged: (v) => hideGone.value = v,
+          ),
+        ),
+        const Divider(),
         const ListTile(dense: true, title: Text('No-login public sources (Deep Search)'),
             subtitle: Text('Used when logged out, in order: Reddit JSON → Reddit RSS → Redlib → archives. Merged by post id.')),
         ValueListenableBuilder(

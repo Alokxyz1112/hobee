@@ -11,8 +11,9 @@ void main() {
     expect(AccountMeta.passes(k(null), s), true);
   });
   test('adult and gone accounts never suggested', () {
-    expect(AccountMeta.passes(k(5, adult: true), s), false);
-    expect(AccountMeta.passes(k(5), Suggestion('x', 1, 'r', nsfwHint: true)), false);
+    expect(AccountMeta.passes(k(5, adult: true), s), true);
+    expect(AccountMeta.passes(k(5, adult: true), s, hide: true), false);
+    expect(AccountMeta.passes(k(5), Suggestion('x', 1, 'r', nsfwHint: true), hide: true), false);
     expect(AccountMeta.passes(k(null, gone: true), s), false);
   });
   test('format', () {

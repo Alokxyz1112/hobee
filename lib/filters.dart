@@ -61,9 +61,31 @@ final readIds = <String>{};
 
 /// Collapse reposts/crossposts of the same image. Separate defaults: off for feeds, on for Deep Search.
 final hideDupes = ValueNotifier<bool>(false);
-final hideDupesDeep = ValueNotifier<bool>(true);
+final hideDupesDeep = ValueNotifier<bool>(false);
 /// Deep Search: hide tiles whose image is gone everywhere instead of showing 'Image gone'.
-final hideGone = ValueNotifier<bool>(true);
+final hideGone = ValueNotifier<bool>(false);
+/// Hide posts, subs and profiles marked 18+. Off unless turned on in Settings.
+final hideAdult = ValueNotifier<bool>(false);
+
+/// Pure: true when a post may be shown under the current content setting.
+bool adultOk(Post p, {bool? hide}) => !(hide ?? hideAdult.value) || p.raw['over_18'] != true;
+
+/// One-time move to open defaults: values stored only because they were the old defaults are reset.
+/// Returns the keys that were changed (unit tested).
+const openDefaultsFlag = 'openDefaults166';
+const oldDefaultsOn = ['hideDupesDeep', 'hideGone', 'hideViewed', 'hideAdult'];
+Future<List<String>> migrateOpenDefaults(SharedPreferences sp) async {
+  if (sp.getBool(openDefaultsFlag) == true) return const [];
+  final changed = <String>[];
+  for (final k in oldDefaultsOn) {
+    if (sp.getBool(k) == true) {
+      await sp.remove(k);
+      changed.add(k);
+    }
+  }
+  await sp.setBool(openDefaultsFlag, true);
+  return changed;
+}
 bool get dupesOn => currentSource.value.startsWith('deep:') ? hideDupesDeep.value : hideDupes.value;
 ValueNotifier<bool> get dupesNotifier => currentSource.value.startsWith('deep:') ? hideDupesDeep : hideDupes;
 
@@ -142,7 +164,7 @@ class Rel {
   }
 }
 
-final viewFilters = Listenable.merge([relevanceSort, Rel.ready, mediaFilter, statusFilter, dateRange, searchQuery, hideRead, hideDupes, hideDupesDeep, hideGone, srSort]);
+final viewFilters = Listenable.merge([relevanceSort, Rel.ready, mediaFilter, statusFilter, dateRange, searchQuery, hideRead, hideDupes, hideDupesDeep, hideGone, hideAdult, srSort]);
 
 // ---- filters remembered per screen (home feeds vs Deep Search) ----
 String _scope = 'main';
@@ -223,6 +245,7 @@ void clearFilters() {
 Future<void> loadFilterPrefs() async {
   final sp = await SharedPreferences.getInstance();
   _sp = sp;
+  await migrateOpenDefaults(sp);
   subSort.value = sp.getString('subSort') ?? 'new';
   hideRead.value = sp.getBool('hideRead') ?? false;
   originalQuality.value = sp.getBool('originalQuality') ?? true;
@@ -234,8 +257,10 @@ Future<void> loadFilterPrefs() async {
   cleanDownloads.addListener(() => sp.setBool('cleanDownloads', cleanDownloads.value));
   originalQuality.addListener(() => sp.setBool('originalQuality', originalQuality.value));
   hideDupes.value = sp.getBool('hideDupes') ?? false;
-  hideDupesDeep.value = sp.getBool('hideDupesDeep') ?? true;
-  hideGone.value = sp.getBool('hideGone') ?? true;
+  hideDupesDeep.value = sp.getBool('hideDupesDeep') ?? false;
+  hideGone.value = sp.getBool('hideGone') ?? false;
+  hideAdult.value = sp.getBool('hideAdult') ?? false;
+  hideAdult.addListener(() => sp.setBool('hideAdult', hideAdult.value));
   hideGone.addListener(() => sp.setBool('hideGone', hideGone.value));
   hideDupes.addListener(() => sp.setBool('hideDupes', hideDupes.value));
   hideDupesDeep.addListener(() => sp.setBool('hideDupesDeep', hideDupesDeep.value));
@@ -336,7 +361,7 @@ List<Post> filterAndCount(List<Post> all) {
   final c = <Object, int>{};
   final out = <Post>[];
   for (final p in all) {
-    if (sr && !subOk(p)) continue;
+    if (!subOk(p)) continue;
     if (sr && hv && Viewed.has(p.author)) continue;
     if (hits != null && !hits.containsKey(p.id)) continue;
     if (!baseMatches(p, text: hits == null)) continue;

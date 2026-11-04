@@ -251,8 +251,8 @@ class AccountMeta {
   }
 
   /// Pure rule (unit tested): adult or gone accounts are never suggested. No other limits.
-  static bool passes(AcctMeta? m, Suggestion s) {
-    if (s.nsfwHint || m?.nsfw == true) return false;
+  static bool passes(AcctMeta? m, Suggestion s, {bool? hide}) {
+    if ((hide ?? hideAdult.value) && (s.nsfwHint || m?.nsfw == true)) return false;
     if (m != null && m.suspended) return false;
     return true;
   }
@@ -378,7 +378,7 @@ class Suggest {
       Map<String, Map<String, int>> likeUser, Set<String> contentOf, Map<String, double> userInterest) async {
     String tag(String sub) => sub;
     final nsfwSubs = await _nsfwSubs(all);
-    profile.removeWhere((k, _) => nsfwSubs.contains(k));
+    if (hideAdult.value) profile.removeWhere((k, _) => nsfwSubs.contains(k));
     if (profile.isEmpty && userInterest.isEmpty) return [];
     // No hard cap: fetch progressively, a few new subs per pass (each cached a day).
     final top = (profile.entries.toList()..sort((a, b) => b.value.compareTo(a.value))).take(30).map((e) => e.key).toList();

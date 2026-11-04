@@ -18,7 +18,7 @@ void main() {
   testWidgets('empty list never shows a bare Load more', (t) async {
     await t.pumpWidget(host(f()));
     expect(find.text('Load more'), findsNothing);
-    expect(find.text('Search older posts'), findsOneWidget);
+    expect(find.text('Keep searching older posts'), findsOneWidget);
     expect(find.textContaining('No matches'), findsOneWidget);
     await t.pumpWidget(host(f(searching: false)));
     expect(find.text('Load more'), findsNothing);
@@ -33,7 +33,7 @@ void main() {
     expect(find.text('Network down'), findsOneWidget);
     expect(find.byKey(const Key('footer-retry')), findsOneWidget);
     await t.pumpWidget(host(f(done: true)));
-    expect(find.text('Nothing here'), findsOneWidget);
+    expect(find.text('No matches anywhere in this subreddit.'), findsOneWidget);
     await t.pumpWidget(host(f(empty: false)));
     expect(find.text('Load more'), findsOneWidget);
   });

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hobee/models.dart';
+import 'package:hobee/filters.dart';
 import 'package:hobee/sub_search.dart';
 
 void main() {
@@ -13,12 +14,17 @@ void main() {
     expect(subParts('sr:pics').q, '');
   });
 
-  test('adult posts dropped, sort', () {
+  test('adult posts kept unless hidden, sort', () {
     Post mk(String id, int score, int c, bool adult) => Post.fromJson({
           'id': id, 'title': 't', 'subreddit': 's', 'author': 'a', 'created_utc': 1700000000,
           'score': score, 'num_comments': c, 'over_18': adult, 'is_self': true, 'selftext': 'x',
         })!;
-    expect(Post.fromJson({'id': 'x', 'title': 't', 'over_18': true}), null);
+    final x = Post.fromJson({'id': 'x', 'title': 't', 'over_18': true});
+    expect(x, isNotNull);
+    expect(subOk(x!), isTrue);
+    hideAdult.value = true;
+    expect(subOk(x), isFalse);
+    hideAdult.value = false;
     final l = [mk('a', 5, 9, false), mk('b', 50, 1, false), mk('c', 20, 3, false)];
     expect(l.where(subOk).length, 3);
     srSort.value = SrSort.top;

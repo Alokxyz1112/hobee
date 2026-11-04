@@ -6,10 +6,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'auth.dart';
 import 'db.dart';
+import 'find.dart';
 import 'models.dart';
 import 'public_sources.dart';
 
-const appVersion = '1.6.5';
+const appVersion = '1.6.6';
 const _ua = 'android:com.alok.hobee:v$appVersion (gallery app)';
 
 /// Archive providers. Order + enabled state are user-configurable in Settings.
@@ -479,37 +480,59 @@ class Archive {
   @visibleForTesting
   static void resetKeywordState() => _titleOffUntil = null;
 
+  /// Page size for keyword queries: big title searches time out on the archive, smaller pages usually finish.
+  static const keywordLimit = 50;
+
   static Future<List<Map<String, dynamic>>> subPage(String sub, {String? title, String? author, int? after, int? before}) async {
-    Uri u(String? t) => Uri.https('arctic-shift.photon-reddit.com', '/api/posts/search', {
-          'subreddit': sub,
-          'limit': '100',
-          'sort': 'desc',
-          if (t != null && t.isNotEmpty) 'title': t,
-          if (author != null && author.isNotEmpty) 'author': author,
-          if (after != null) 'after': '$after',
-          if (before != null) 'before': '$before',
-        });
+    Uri u(String? t) {
+      final kw = t != null && t.isNotEmpty;
+      return Uri.https('arctic-shift.photon-reddit.com', '/api/posts/search', {
+        'subreddit': sub,
+        'limit': kw ? '$keywordLimit' : '100',
+        // Newest first is the default; asking for it explicitly makes keyword queries time out more often.
+        if (!kw) 'sort': 'desc',
+        if (kw) 'title': t,
+        if (author != null && author.isNotEmpty) 'author': author,
+        if (after != null) 'after': '$after',
+        if (before != null) 'before': '$before',
+      });
+    }
     final keyword = title != null && title.isNotEmpty;
     final off = _titleOffUntil;
     final skipServer = keyword && off != null && DateTime.now().isBefore(off);
     try {
       if (skipServer) throw _Unavailable('keyword search unavailable');
       // A keyword query that times out server side won't succeed on retry; fall back at once.
-      return await _getJsonList(u(title), retry429: true, retrySlow: !keyword);
+      final rows = await _getJsonList(u(title), retry429: true, retrySlow: !keyword);
+      return withPageMarker(rows, keyword ? keywordLimit : 100);
     } on _Unavailable catch (e) {
       if (!keyword) rethrow;
       if (!skipServer && e.why.startsWith('busy')) _titleOffUntil = DateTime.now().add(const Duration(minutes: 10));
-      final words = title.toLowerCase().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
       final rows = await _getJsonList(u(null), retry429: true);
-      // Keep the page cursor honest: tag the oldest row so paging continues past filtered pages.
-      final oldest = rows.isEmpty ? null : rows.map(_ts).reduce((a, b) => a < b ? a : b);
-      final kept = rows.where((r) {
-        final t = '${r['title'] ?? ''} ${r['selftext'] ?? ''}'.toLowerCase();
-        return words.every(t.contains);
-      }).toList();
-      if (rows.length >= 100 && oldest != null) kept.add({'_hobee_cursor': oldest});
-      return kept;
+      return localKeywordPage(rows, title, 100);
     }
+  }
+
+  /// Pure: keeps rows matching [query] in any searchable field (title, text, sub, author, flair, domain, link),
+  /// case and accent insensitive with light typo tolerance, and tags the page so paging carries on.
+  static List<Map<String, dynamic>> localKeywordPage(List<Map<String, dynamic>> rows, String query, int limit) {
+    final terms = queryTerms(query);
+    final kept = rows.where((r) {
+      if (r['title'] == null) return false;
+      final p = Post.fromJson(r);
+      return p != null && textMatches(p, terms);
+    }).toList();
+    return _mark(kept, rows, limit);
+  }
+
+  /// Pure: adds a cursor row ('_hobee_cursor', '_hobee_full') when the server page was full, so the
+  /// caller knows older pages exist even if few rows were kept.
+  static List<Map<String, dynamic>> withPageMarker(List<Map<String, dynamic>> rows, int limit) => _mark([...rows], rows, limit);
+
+  static List<Map<String, dynamic>> _mark(List<Map<String, dynamic>> kept, List<Map<String, dynamic>> rows, int limit) {
+    if (rows.length < limit || rows.isEmpty) return kept;
+    final oldest = rows.map(_ts).reduce((a, b) => a < b ? a : b);
+    return kept..add({'_hobee_cursor': oldest, '_hobee_full': true});
   }
 
   /// Public user stats from Arctic Shift (_meta: karma, post/comment counts, first and last seen).

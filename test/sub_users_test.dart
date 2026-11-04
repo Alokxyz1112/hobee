@@ -15,9 +15,10 @@ void main() {
     expect(g.firstWhere((u) => u.name == 'amy').posts, 2);
   });
   test('drops adult profiles and sorts', () {
+    expect(filterUsers(groupAuthors(posts), const UserFilters(), (_) => null, adult: (n) => n == 'bob').length, 2);
     final g = groupAuthors(posts);
     expect(filterUsers(g, const UserFilters(), (_) => null).first.name, 'amy');
-    expect(filterUsers(g, const UserFilters(), (_) => null, adult: (n) => n == 'bob').map((u) => u.name), ['amy']);
+    expect(filterUsers(g, const UserFilters(), (_) => null, adult: (n) => n == 'bob', hide: true).map((u) => u.name), ['amy']);
     final k = {'amy': 5, 'bob': 50000};
     expect(filterUsers(g, const UserFilters(sort: UserSort.karma), (n) => k[n]).first.name, 'bob');
     expect(filterUsers(g, const UserFilters(sort: UserSort.latest), (_) => null).first.name, 'amy');

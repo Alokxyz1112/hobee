@@ -33,8 +33,36 @@ final validSub = RegExp(r'^[A-Za-z0-9_]{2,30}$');
 enum SrSort { newest, top, comments }
 const srSortLabels = {SrSort.newest: 'New', SrSort.top: 'Top score', SrSort.comments: 'Most comments'};
 final srSort = ValueNotifier<SrSort>(SrSort.newest);
-/// Adult posts never show (they are also dropped when parsed).
-bool subOk(Post p) => p.raw['over_18'] != true;
+/// Posts marked 18+ show unless hidden in Settings.
+bool subOk(Post p) => adultOk(p);
+
+/// Pure: keep paging older posts in the background while a search has few results, so nobody has to tap
+/// 'search older posts' over and over. Stops after a while; the footer then offers to keep going.
+bool keepSearching({required int shown, required int pages, required Duration spent}) =>
+    shown == 0 ? pages < 40 && spent < const Duration(seconds: 90) : shown < 30 && pages < 12;
+
+/// Words typed in the filter box while browsing a whole subreddit; the archive can search them across all of it.
+String? widerQuery(String src, String typed) {
+  if (!isSubSearch(src)) return null;
+  final q = typed.trim();
+  if (subParts(src).q.isNotEmpty || q.length < 2) return null;
+  return q;
+}
+
+void searchWider(String src) {
+  final q = widerQuery(src, searchQuery.value);
+  if (q == null) return;
+  final p = subParts(src);
+  searchQuery.value = '';
+  openSubSearch(p.sub, q: q, author: p.author);
+}
+
+/// 'd/m/yyyy' of the oldest post, for "searched back to".
+String? oldestLabel(List<Post> all) {
+  if (all.isEmpty) return null;
+  final t = DateTime.fromMillisecondsSinceEpoch(all.map((p) => p.created).reduce((a, b) => a < b ? a : b) * 1000).toLocal();
+  return '${t.day}/${t.month}/${t.year}';
+}
 
 void srSortList(List<Post> l) {
   num k(Post p) => srSort.value == SrSort.top ? ((p.raw['score'] as num?) ?? 0) : ((p.raw['num_comments'] as num?) ?? 0);
@@ -69,7 +97,7 @@ class SubSearch {
       if (x != null) posts.add(x);
     }
     await Db.savePosts(source, posts);
-    final full = rows.length >= 100;
+    final full = rows.any((d) => d['_hobee_full'] == true) || rows.length >= 100;
     if (fromStart && cur != null) return posts.length;
     if (!full && r != null) return posts.isEmpty ? -1 : posts.length; // range ran out, not the sub
     await Db.setCursor(source, full ? '$oldest' : null);

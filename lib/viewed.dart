@@ -8,7 +8,7 @@ import 'db.dart';
 /// Authors whose profile was opened from subreddit results. Global across subreddits, stored in SQLite.
 class Viewed {
   static final names = ValueNotifier<Set<String>>(<String>{});
-  static final hide = ValueNotifier<bool>(true);
+  static final hide = ValueNotifier<bool>(false);
   static String? lastMarked;
 
   static bool has(String n) => names.value.contains(n.toLowerCase());
@@ -16,7 +16,7 @@ class Viewed {
   static Future<void> load() async {
     try {
       final sp = await SharedPreferences.getInstance();
-      hide.value = sp.getBool('hideViewed') ?? true;
+      hide.value = sp.getBool('hideViewed') ?? false;
       hide.addListener(() => sp.setBool('hideViewed', hide.value));
       final db = await Db.db;
       await _table();

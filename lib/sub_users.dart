@@ -227,7 +227,7 @@ List<SubUser> groupAuthors(List<Post> posts) {
     if (!canOpenAuthor(p.author)) continue;
     final u = m.putIfAbsent(p.author.toLowerCase(), () => SubUser(p.author));
     u.posts++;
-    if (p.raw['over_18'] == true) u.nsfw++; // never shown; such posts are dropped when parsed
+    if (p.raw['over_18'] == true) u.nsfw++;
     if (p.created > u.latest) u.latest = p.created;
     u.times.add(p.created);
     final k = p.media.isEmpty ? (isLink(p) ? MediaFilter.links : MediaFilter.text) : kindOf(p);
@@ -238,8 +238,9 @@ List<SubUser> groupAuthors(List<Post> posts) {
 }
 
 /// Pure: drop adult posters and sort. [karmaOf] returns null when unknown; [adult] is true for adult profiles.
-List<SubUser> filterUsers(List<SubUser> all, UserFilters f, int? Function(String) karmaOf, {bool Function(String)? adult}) {
-  final out = all.where((u) => u.nsfw == 0 && !(adult?.call(u.name) ?? false)).toList();
+List<SubUser> filterUsers(List<SubUser> all, UserFilters f, int? Function(String) karmaOf, {bool Function(String)? adult, bool? hide}) {
+  final h = hide ?? hideAdult.value;
+  final out = all.where((u) => !h || (u.nsfw == 0 && !(adult?.call(u.name) ?? false))).toList();
   int c(SubUser x, SubUser y) => switch (f.sort) {
         UserSort.posts => y.posts.compareTo(x.posts),
         UserSort.latest => y.latest.compareTo(x.latest),
