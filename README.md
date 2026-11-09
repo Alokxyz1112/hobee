@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.3.10-red">
+  <a href="https://github.com/Alokxyz1112/hobee/releases/latest"><img alt="version" src="https://img.shields.io/github/v/release/Alokxyz1112/hobee?sort=semver&label=version&color=red"></a>
   <img alt="platform" src="https://img.shields.io/badge/platform-Android-3DDC84">
   <img alt="flutter" src="https://img.shields.io/badge/Flutter-3.47.8-02569B">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-blue">
@@ -18,6 +18,16 @@
 Hobee shows a Reddit user's or subreddit's posts as a clean photo/video grid. Its main trick is **Deep Search**: it pulls a profile's history from the live Reddit sources *and* public archives, merges everything by post id, removes duplicates and tells you which posts are still live and which ones are gone.
 
 I'm a student and this is a hobby project. It works well for me, but read [Known issues](#known-issues) before you expect too much.
+
+<p align="center">
+  <a href="https://github.com/Alokxyz1112/hobee/releases/latest"><strong>Download latest APK</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/Alokxyz1112/hobee/releases/latest">Releases</a>
+</p>
+
+<p align="center">
+  <img src="docs/demo.gif" width="280" alt="Hobee demo: Deep Search, viewer, and layouts">
+</p>
 
 ## Table of contents
 
