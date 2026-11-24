@@ -12,7 +12,7 @@ import 'models.dart';
 import 'public_sources.dart';
 
 const appVersion = '1.6.7';
-const _ua = 'android:com.alok.hobee:v$appVersion (gallery app)';
+const _ua = 'android:io.github.cscott0108.hobees:v$appVersion (gallery app)';
 
 /// Archive providers. Order + enabled state are user-configurable in Settings.
 enum ArchiveProvider { pullpush, arcticShift }

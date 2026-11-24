@@ -21,7 +21,7 @@ class Auth extends ChangeNotifier {
   String? lastError;
 
   bool get loggedIn => refreshToken != null;
-  String get userAgent => 'android:com.alok.hobee:v1.0 (by /u/${username ?? 'unknown'})';
+  String get userAgent => 'android:io.github.cscott0108.hobees:v1.0 (by /u/${username ?? 'unknown'})';
 
   Future<void> init() async {
     clientId = await _s.read(key: 'clientId');

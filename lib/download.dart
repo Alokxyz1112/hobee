@@ -15,7 +15,7 @@ class Downloader {
   static Future<File> _fetch(String url, String name) async {
     final dir = await getTemporaryDirectory();
     final f = File('${dir.path}/$name');
-    final r = await http.get(Uri.parse(url), headers: {'User-Agent': 'android:com.alok.hobee:v1.0'}).timeout(const Duration(seconds: 60));
+    final r = await http.get(Uri.parse(url), headers: {'User-Agent': 'android:io.github.cscott0108.hobees:v1.0'}).timeout(const Duration(seconds: 60));
     if (r.statusCode != 200) throw Exception('HTTP ${r.statusCode}');
     await f.writeAsBytes(r.bodyBytes);
     return f;
@@ -140,7 +140,7 @@ class Downloader {
     for (final u in {m.url, ?m.preview}) {
       if (!u.startsWith('http')) continue;
       try {
-        final r = await http.get(Uri.parse(u), headers: {'User-Agent': 'android:com.alok.hobee:v1.0'}).timeout(const Duration(seconds: 60));
+        final r = await http.get(Uri.parse(u), headers: {'User-Agent': 'android:io.github.cscott0108.hobees:v1.0'}).timeout(const Duration(seconds: 60));
         if (r.statusCode == 200 && r.bodyBytes.length > 2048) return r.bodyBytes;
         err = Exception('HTTP ${r.statusCode}');
       } catch (e) {

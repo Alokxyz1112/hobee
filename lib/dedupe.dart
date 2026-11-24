@@ -236,7 +236,7 @@ class Dedupe {
 
   static Future<int?> _hashUrl(String url) async {
     try {
-      final r = await http.get(Uri.parse(url), headers: {'User-Agent': 'android:com.alok.hobee:v1.3.7 (personal gallery app)'}).timeout(const Duration(seconds: 15));
+      final r = await http.get(Uri.parse(url), headers: {'User-Agent': 'android:io.github.cscott0108.hobees:v1.3.7 (personal gallery app)'}).timeout(const Duration(seconds: 15));
       // Big files (full size photos, long GIFs) would need a lot of memory to decode; they are skipped.
       if (r.statusCode != 200 || r.bodyBytes.isEmpty || r.bodyBytes.length > maxHashBytes) return null;
       return await compute(dHash, r.bodyBytes);

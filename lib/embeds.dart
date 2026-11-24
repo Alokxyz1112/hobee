@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 
 /// Turns RedGIFs / Streamable / v.redd.it links into something the player can stream.
 class Embeds {
-  static const ua = 'Mozilla/5.0 (Linux; Android 14) Hobee';
+  static const ua = 'Mozilla/5.0 (Linux; Android 14) Hobees';
   static String? _token;
   static DateTime _tokenUntil = DateTime(2000);
   static final _cache = <String, String>{};

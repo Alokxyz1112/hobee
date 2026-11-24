@@ -416,7 +416,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
           slivers: [
             SliverAppBar(pinned: true, flexibleSpace: const GlassBar(), 
         leading: widget.leading,
-        title: TitleButton(widget.title ?? 'Hobee', onTap: widget.onTitleTap),
+        title: TitleButton(widget.title ?? 'Hobees', onTap: widget.onTitleTap),
         actions: [
           ...widget.actions,
           IconButton(icon: const Icon(Icons.calendar_month), tooltip: 'Jump to month', onPressed: sections.isEmpty ? null : _jump),
