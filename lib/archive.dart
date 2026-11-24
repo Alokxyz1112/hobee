@@ -552,6 +552,19 @@ class Archive {
     return [for (final r in rows) if (r['display_name'] != null) '${r['display_name']}'];
   }
 
+  /// One page of a subreddit's or user's posts from Arctic Shift, newest first, optionally only posts
+  /// after/before a created_utc. Paced, retries 429. Used by the Following feed.
+  static Future<List<Map<String, dynamic>>> recentPosts({String? sub, String? author, int? after, int? before, int limit = 100}) => _getJsonList(
+      Uri.https('arctic-shift.photon-reddit.com', '/api/posts/search', {
+        'subreddit': ?sub,
+        'author': ?author,
+        'limit': '$limit',
+        'sort': 'desc',
+        if (after != null) 'after': '$after',
+        if (before != null) 'before': '$before',
+      }),
+      retry429: true);
+
   /// A user's recent posts from Arctic Shift (one page). Used for suggestion previews.
   static Future<List<Map<String, dynamic>>> userPosts(String name, {int limit = 60}) => _getJsonList(
       Uri.https('arctic-shift.photon-reddit.com', '/api/posts/search', {'author': name, 'limit': '$limit', 'sort': 'desc'}),

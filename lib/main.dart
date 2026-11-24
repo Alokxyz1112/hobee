@@ -1,3 +1,4 @@
+import 'following_ui.dart';
 import 'follows.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -196,6 +197,13 @@ class LoginPrompt extends StatelessWidget {
               const Text('Your Reddit media, ad-free.', textAlign: TextAlign.center),
               const SizedBox(height: 24),
               FilledButton.icon(onPressed: () => startLogin(context), icon: const Icon(Icons.login), label: const Text('Log in with Reddit')),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                key: const Key('home-following'),
+                onPressed: () => openFollowing(),
+                icon: const Icon(Icons.dynamic_feed),
+                label: const Text('Following (no login)'),
+              ),
               if (Auth.i.lastError != null) ...[
                 const SizedBox(height: 16),
                 Text(Auth.i.lastError!, style: const TextStyle(color: accent), textAlign: TextAlign.center),

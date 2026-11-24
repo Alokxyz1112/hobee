@@ -1,3 +1,6 @@
+import 'follows.dart';
+import 'following_ui.dart';
+import 'following.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:math';
@@ -23,7 +26,7 @@ class _DeepSearchScreenState extends State<DeepSearchScreen> {
   final user = TextEditingController(), sub = TextEditingController();
   String? err;
   String? _key;
-  bool subs = false;
+  int mode = 0; // 0 accounts, 1 subreddits, 2 following
   DateTime _since = DateTime.now();
 
   @override
@@ -43,8 +46,9 @@ class _DeepSearchScreenState extends State<DeepSearchScreen> {
   /// Time spent per account feeds history and the interest profile.
   void _track() {
     final v = deepSource.value;
-    if (v != null && isSubSearch(v)) subs = true;
-    final k = v == null || isSubSearch(v) ? null : v.substring(5);
+    if (v != null && isSubSearch(v)) mode = 1;
+    if (v != null && isFollowing(v)) mode = 2;
+    final k = v == null || isSubSearch(v) || isFollowing(v) ? null : v.substring(5);
     if (k == _key) return;
     if (_key != null) DeepHistory.leave(_key!, DateTime.now().difference(_since).inSeconds);
     _key = k;
@@ -76,7 +80,7 @@ class _DeepSearchScreenState extends State<DeepSearchScreen> {
       FocusScope.of(context).unfocus();
       clearFilters();
       resetSubOptions();
-      setState(() => subs = true);
+      setState(() => mode = 1);
       openSubSearch(r);
       return;
     }
@@ -163,6 +167,18 @@ class _DeepSearchScreenState extends State<DeepSearchScreen> {
 
   Widget _results(String src) {
     if (isSubSearch(src)) return _subResults(src);
+    if (isFollowing(src)) {
+      return FutureBuilder<List<Profile>>(
+        future: FollowStore.profiles(),
+        builder: (_, s) => PostsView(
+          key: ValueKey(src),
+          title: 'Following · ${s.data?.where((p) => p.id == followingProfile(src)).map((p) => p.name).firstOrNull ?? ''}',
+          sources: false,
+          header: const FollowingStatusBar(),
+          leading: IconButton(icon: const Icon(Icons.arrow_back), tooltip: 'Back', onPressed: _reset),
+        ),
+      );
+    }
     final key = src.substring(5);
     return PostsView(
       key: ValueKey(src),
@@ -188,16 +204,19 @@ class _DeepSearchScreenState extends State<DeepSearchScreen> {
       backgroundColor: Colors.transparent,
       appBar: AppBar(flexibleSpace: const GlassBar(), title: const Text('Deep Search', style: TextStyle(fontWeight: FontWeight.bold))),
       body: ListView(padding: bodyPadding(context), children: [
-        SegmentedButton<bool>(
+        SegmentedButton<int>(
+          showSelectedIcon: false,
           segments: const [
-            ButtonSegment(value: false, icon: Icon(Icons.person_search), label: Text('Accounts')),
-            ButtonSegment(value: true, icon: Icon(Icons.forum_outlined), label: Text('Subreddits')),
+            ButtonSegment(value: 0, icon: Icon(Icons.person_search), label: Text('Accounts')),
+            ButtonSegment(value: 1, icon: Icon(Icons.forum_outlined), label: Text('Subreddits')),
+            ButtonSegment(value: 2, icon: Icon(Icons.dynamic_feed), label: Text('Following')),
           ],
-          selected: {subs},
-          onSelectionChanged: (s) => setState(() => subs = s.first),
+          selected: {mode},
+          onSelectionChanged: (s) => setState(() => mode = s.first),
         ),
         const SizedBox(height: 16),
-        if (subs) const SubSearchForm() else ...[
+        if (mode == 2) const FollowingPanel()
+        else if (mode == 1) const SubSearchForm() else ...[
         Text('Find a user\'s older and deleted posts from Reddit, RSS, Redlib and public archives. No login needed.',
             style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
         const SizedBox(height: 16),

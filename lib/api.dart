@@ -1,3 +1,4 @@
+import 'following.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'archive.dart';
@@ -43,6 +44,7 @@ class Api {
   static Future<int> fetchMore(String source, {bool fromStart = false}) async {
     if (isSubSearch(source)) return SubSearch.fetchMore(source, fromStart: fromStart);
     if (isDeep(source)) return Archive.fetchMore(source, fromStart: fromStart);
+    if (isFollowing(source)) return Following.fetchMore(source, fromStart: fromStart);
     final (after, done) = await Db.cursor(source);
     if (done && !fromStart) return -1;
     final j = await get(pathFor(source), {
