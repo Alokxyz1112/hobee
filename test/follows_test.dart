@@ -1,6 +1,8 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hobee/db.dart';
 import 'package:hobee/follows.dart';
+import 'package:hobee/follows_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -102,6 +104,26 @@ void main() {
       expect(await FollowStore.follows(art), isEmpty);
       expect((await FollowStore.follows(main)).length, 3);
       expect(await FollowStore.deleteProfile(main), isFalse, reason: 'the last profile stays');
+    });
+
+    testWidgets('import screen: paste, preview counts, save into the profile', (t) async {
+      final id = await t.runAsync(() async => (await FollowStore.profiles()).first.id);
+      await t.pumpWidget(MaterialApp(
+        home: Builder(builder: (c) => Scaffold(body: TextButton(onPressed: () => Navigator.push(c, MaterialPageRoute(builder: (_) => ImportScreen(profile: id!))), child: const Text('go')))),
+      ));
+      await t.tap(find.text('go'));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const Key('import-text')), 'https://old.reddit.com/r/imp_a+imp_b+u_imp-user/ r/imp_a !!bad!!');
+      await t.pump();
+      expect(find.text('Found 2 subreddits and 1 users · 1 skipped'), findsOneWidget);
+      await t.runAsync(() => Future.delayed(const Duration(milliseconds: 200))); // profiles load
+      await t.pump();
+      await t.tap(find.byKey(const Key('import-save')));
+      await t.runAsync(() => Future.delayed(const Duration(milliseconds: 300)));
+      await t.pumpAndSettle();
+      final fs = await t.runAsync(() => FollowStore.follows(id!));
+      expect(fs!.map((f) => f.label), containsAll(['r/imp_a', 'r/imp_b', 'u/imp-user']));
+      expect(find.text('go'), findsOneWidget, reason: 'screen closes after saving');
     });
 
     test('rename profile', () async {

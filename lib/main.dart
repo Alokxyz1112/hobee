@@ -1,3 +1,4 @@
+import 'follows.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'crash_log.dart';
@@ -50,6 +51,7 @@ Future<void> _main() async {
   await _safe('subHistory', SubHistory.load);
   await _safe('subNav', () async => initSubNav());
   await _safe('viewed', Viewed.load);
+  await _safe('follows', FollowStore.load);
   // Older builds saved suggestion filter choices; they are gone now, so drop the key.
   await _safe('suggest', () async => sp.remove('suggestPrefs'));
   await _safe('video', VideoPrefs.load);
