@@ -61,6 +61,7 @@ void main() {
     Following.pageSize = 3;
     Following.refreshSize = 3;
     Following.fillPages = 10;
+    Following.fillPosts = 500;
     Following.minGap = Duration.zero;
     Following.maxGap = Duration.zero;
     Following.gap = Duration.zero;
@@ -215,6 +216,21 @@ void main() {
       expect(Following.refreshing(src), isFalse);
       Following.fillPages = 10;
     });
+  });
+
+  test('fill-back stops at the post cap per entry; scrolling still loads older posts', () async {
+    Following.budget = 20;
+    Following.fillPosts = 6;
+    final now = t0.millisecondsSinceEpoch ~/ 1000;
+    fake.times
+      ..['r/aa'] = [for (var d = 1; d <= 20; d++) now - d * 86400]
+      ..['r/bb'] = []
+      ..['u/ddd'] = [];
+    await Following.fetchMore(src, now: t0);
+    expect(await posts(), 6, reason: 'newest page + 1 fill page, then the cap');
+    expect(Following.refreshing(src), isFalse);
+    await Following.fetchMore(src, now: t0);
+    expect(await posts(), 9, reason: 'scroll pages back past the cap');
   });
 
   test('the refresher runs the whole round on its own', () async {

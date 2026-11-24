@@ -14,7 +14,7 @@ import 'models.dart';
 ///  1. refresh round: newest posts of every entry not checked in the last [freshFor], stalest first,
 ///     asking only for posts newer than the newest one already seen;
 ///  2. fill-back: entries whose loaded posts don't yet reach back [subWindow] (subreddits) or [userWindow]
-///     (users) go further back, newest gap first, at most [fillPages] pages per entry each round;
+///     (users) go further back, newest gap first, up to [fillPosts] posts per entry;
 ///  3. then, when you scroll to the end, paging back one page further per entry.
 bool isFollowing(String source) => source.startsWith('fol:');
 String followingKey(int profile) => 'fol:$profile';
@@ -30,18 +30,19 @@ class FollowState {
   int at; // last refresh, ms since epoch (0 = never)
   int? newest, oldest; // created_utc range loaded so far
   bool done; // no older posts left
-  FollowState({this.at = 0, this.newest, this.oldest, this.done = false});
+  int n; // posts loaded for this entry so far
+  FollowState({this.at = 0, this.newest, this.oldest, this.done = false, this.n = 0});
 
   factory FollowState.decode(String? s) {
     if (s == null) return FollowState();
     try {
       final m = jsonDecode(s) as Map<String, dynamic>;
-      return FollowState(at: m['at'] as int? ?? 0, newest: m['new'] as int?, oldest: m['old'] as int?, done: m['done'] == true);
+      return FollowState(at: m['at'] as int? ?? 0, newest: m['new'] as int?, oldest: m['old'] as int?, done: m['done'] == true, n: m['n'] as int? ?? 0);
     } catch (_) {
       return FollowState();
     }
   }
-  String encode() => jsonEncode({'at': at, 'new': ?newest, 'old': ?oldest, 'done': done});
+  String encode() => jsonEncode({'at': at, 'new': ?newest, 'old': ?oldest, 'done': done, 'n': n});
 }
 
 class Following {
@@ -54,7 +55,10 @@ class Following {
   /// How far back a refresh round preloads on its own; older posts load when you scroll.
   static Duration subWindow = const Duration(days: 60);
   static Duration userWindow = const Duration(days: 180);
-  /// Fill-back pages per entry per round, so a very busy subreddit can't hold up the rest for hours.
+  /// Fill-back stops at this many posts per entry even if the window isn't reached (busy subreddits);
+  /// scrolling still loads older ones.
+  static int fillPosts = 500;
+  /// Fill-back pages per entry per round (a guard: failed pages count too, so errors can't loop).
   static int fillPages = 10;
   /// Arctic Shift answers "slow down" (HTTP 422) at about one request a second, so the feed adapts: it starts
   /// at [minGap] between its requests, doubles the gap (up to [maxGap]) after every slow-down and eases back
@@ -198,7 +202,7 @@ class Following {
     // Entries whose posts don't reach back to their window yet, newest gap first.
     List<Follow> toFill() => follows.where((f) {
           final s = states[f]!;
-          return !s.done && s.oldest != null && s.oldest! > horizon(f, t) && (filled[f.key] ?? 0) < fillPages;
+          return !s.done && s.oldest != null && s.oldest! > horizon(f, t) && s.n < fillPosts && (filled[f.key] ?? 0) < fillPages;
         }).toList()
           ..sort((a, b) => states[b]!.oldest!.compareTo(states[a]!.oldest!));
 
@@ -223,6 +227,7 @@ class Following {
       try {
         final rows = await _paced(f, after: s.newest, limit: s.newest == null ? pageSize : refreshSize);
         await save(f, rows);
+        s.n += rows.length;
         final ts = [for (final r in rows) _ts(r)].where((x) => x > 0).toList();
         if (ts.isNotEmpty) {
           final hi = ts.reduce((a, b) => a > b ? a : b), lo = ts.reduce((a, b) => a < b ? a : b);
@@ -265,6 +270,7 @@ class Following {
         try {
           final rows = await _paced(f, before: s.oldest, limit: pageSize);
           await save(f, rows);
+          s.n += rows.length;
           final ts = [for (final r in rows) _ts(r)].where((x) => x > 0).toList();
           if (ts.isNotEmpty) s.oldest = ts.reduce((a, b) => a < b ? a : b);
           s.done = rows.length < pageSize || ts.isEmpty;
