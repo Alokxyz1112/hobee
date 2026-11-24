@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart' show compute;
 
 List<Post> _decodeAll(List<String> js) => js.map((j) => Post.fromJson(jsonDecode(j))).whereType<Post>().toList();
 
+enum WindowRead { all, window, next }
+
 class Db {
   static Database? _db;
   static Future<Database> get db async {
@@ -172,6 +174,15 @@ class Db {
   /// and the next [windowStep] from the database as you scroll, instead of all of them at once.
   static int windowMin = 2000;
   static int windowStep = 1000;
+
+  /// What the grid reads for a feed of [count] saved posts: the whole feed (small feeds, or [needAll] for a
+  /// search or date range), the newest window (at least [windowStep], or as many as already [shown] when
+  /// reloading the same window), or the [grow] chunk below it. Returns the kind and the row limit (0 = all).
+  static (WindowRead, int) windowRead({required int count, required int shown, required bool sameWindow, required bool needAll, bool grow = false}) {
+    if (count <= windowMin || needAll) return (WindowRead.all, 0);
+    if (grow && sameWindow && shown > 0) return (WindowRead.next, windowStep);
+    return (WindowRead.window, sameWindow && shown > windowStep ? shown : windowStep);
+  }
 
   /// Up to [limit] posts of [source], newest first, older than the post ([created], [id]) when given.
   static Future<List<Post>> loadPage(String source, {required int limit, int? created, String? id}) async {

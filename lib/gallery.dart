@@ -58,6 +58,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   bool _active = true;
   String? _loaded;
+
+  // Big feeds open as a window of the newest posts (Db.windowStep); scrolling near the end loads the next
+  // chunk from the database before asking the network. Search and date ranges read the whole feed.
+  bool _windowed = false, _dbMore = false, _dbLoading = false;
+  String? _allSrc;
+  bool get _needAll => Rel.queryText().trim().isNotEmpty || dateRange.value != null;
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -150,7 +156,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
     _loaded = src;
     _bg = 0;
     _bgStart = DateTime.now();
-    await _fromDb();
+    // Reading a big feed takes a moment: show the spinner, not the empty "Try again" footer.
+    setState(() => _dbLoading = true);
+    try {
+      await _fromDb();
+    } finally {
+      if (mounted) setState(() => _dbLoading = false);
+    }
     final (_, d) = await Db.cursor(src);
     if (!mounted || src != effectiveSource()) return;
     setState(() => done = d);
@@ -161,17 +173,45 @@ class _GalleryScreenState extends State<GalleryScreen> {
     }
   }
 
-  Future<void> _fromDb() async {
+  /// Reads the posts to show from the database: the whole feed, or for big ones the newest window (as big as
+  /// the one already shown, so a reload keeps your place); [grow] appends the next chunk below it.
+  Future<void> _fromDb({bool grow = false}) async {
     final src = effectiveSource();
-    final all = await Db.load(src);
+    final n = await Db.count(src);
+    final (kind, limit) = Db.windowRead(count: n, shown: _all.length, sameWindow: src == _allSrc && _windowed, needAll: _needAll, grow: grow);
+    final win = kind != WindowRead.all;
+    List<Post> all, fresh;
+    switch (kind) {
+      case WindowRead.all:
+        all = fresh = await Db.load(src);
+      case WindowRead.next:
+        fresh = await Db.loadPage(src, limit: limit, created: _all.last.created, id: _all.last.id);
+        all = [..._all, ...fresh];
+      case WindowRead.window:
+        all = fresh = await Db.loadPage(src, limit: limit);
+    }
     if (!mounted || src != effectiveSource()) return;
     _all = all;
+    _allSrc = src;
+    _windowed = win;
+    _dbMore = win && all.length < n;
     // Show posts right away; duplicate grouping catches up once saved hashes are read.
     _rebuild();
     if (!dupesOn || textish) return;
-    await Dedupe.warm(all);
+    await Dedupe.warm(fresh);
     if (!mounted || src != effectiveSource()) return;
     _rebuildSoon();
+  }
+
+  /// Next chunk of a windowed feed from the database (no network).
+  Future<void> _growDb() async {
+    if (_dbLoading) return;
+    setState(() => _dbLoading = true);
+    try {
+      await _fromDb(grow: true);
+    } finally {
+      if (mounted) setState(() => _dbLoading = false);
+    }
   }
 
   Timer? _goneT;
@@ -196,9 +236,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
   /// The Following refresher saved posts: reload from the database (at most every 1.5 s), keeping the view in place.
   void _followingSaved() {
     if (!isFollowing(effectiveSource())) return;
-    _folT ??= Timer(const Duration(milliseconds: 1500), () {
+    // A windowed feed reloads only its window, and less often, so scrolling stays smooth while a refresh runs.
+    _folT ??= Timer(Duration(milliseconds: _windowed ? 4000 : 1500), () {
       _folT = null;
       if (!mounted || !isFollowing(effectiveSource())) return;
+      if (_dbLoading) return _followingSaved(); // a chunk is loading: reload after it, not over it
       _anchor = true;
       _fromDb();
     });
@@ -226,6 +268,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
   void _rebuild() {
     _rebuildT?.cancel();
     if (!_active || !mounted) return;
+    if (_windowed && _needAll && !_dbLoading) {
+      // Search and date ranges look through the whole feed, not just the loaded window.
+      _dbLoading = true;
+      _fromDb().whenComplete(() {
+        if (mounted) setState(() => _dbLoading = false);
+      });
+      return;
+    }
     final old = entries;
     final g = hideGone.value ? MediaCheck.gone.value : const <String>{};
     var shown = filterAndCount(_all);
@@ -282,7 +332,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
   /// Load the next page whenever the end of the list is close: on scroll, and also after a page lands or tiles get
   /// hidden (the list may not fill the screen, so no scroll event would ever come and 'Load more' would sit there).
   void _nearEnd() {
-    if (!mounted || !sc.hasClients || loading || done || bulk || error != null || _noGrow >= 5) return;
+    if (!mounted || !sc.hasClients || loading || _dbLoading || (done && !_dbMore) || bulk || error != null || _noGrow >= 5) return;
     if (sc.position.pixels > sc.position.maxScrollExtent - 1200) _more();
   }
 
@@ -293,6 +343,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
   int _noGrow = 0; // auto-loads in a row that added nothing visible; stop after a few until the user scrolls
   int _auto = 0;
   Future<void> _more({bool auto = false}) async {
+    if (_dbMore && _windowed) {
+      // Saved posts first: the next chunk from the database.
+      final before = entries.length;
+      await _growDb();
+      _noGrow = entries.length > before ? 0 : _noGrow + 1;
+      _checkEndSoon();
+      return;
+    }
     if (loading || done) return;
     if (!auto) { _auto = 0; _noGrow = 0; _bg = 0; _bgStart = DateTime.now(); }
     final before = entries.length;
@@ -539,9 +597,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
               ),
             SliverToBoxAdapter(
               child: ListFooter(
-                loading: loading,
+                loading: loading || _dbLoading,
                 error: error,
-                done: done,
+                done: done && !_dbMore,
                 empty: entries.isEmpty && _textHits == 0,
                 searching: isSubSearch(effectiveSource()) && Rel.queryText().trim().isNotEmpty,
                 checkedTo: isSubSearch(effectiveSource()) ? oldestLabel(_all) : null,

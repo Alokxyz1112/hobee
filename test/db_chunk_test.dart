@@ -75,4 +75,17 @@ void main() {
     }
     expect(seen, ['b', 'd', 'e', 'c', 'a', 'f']);
   });
+
+  test('window plan: small feeds whole, big ones 1000 at a time, search reads all', () {
+    (WindowRead, int) plan(int count, {int shown = 0, bool same = false, bool needAll = false, bool grow = false}) =>
+        Db.windowRead(count: count, shown: shown, sameWindow: same, needAll: needAll, grow: grow);
+    Db.windowMin = 2000;
+    Db.windowStep = 1000;
+    expect(plan(1500), (WindowRead.all, 0));
+    expect(plan(28000), (WindowRead.window, 1000), reason: 'opening a big feed');
+    expect(plan(28000, shown: 3000, same: true), (WindowRead.window, 3000), reason: 'a reload keeps the window size');
+    expect(plan(28000, shown: 3000, same: false), (WindowRead.window, 1000), reason: 'another feed starts small');
+    expect(plan(28000, shown: 1000, same: true, grow: true), (WindowRead.next, 1000), reason: 'scrolling near the end');
+    expect(plan(28000, shown: 1000, same: true, needAll: true), (WindowRead.all, 0), reason: 'search / date range');
+  });
 }
