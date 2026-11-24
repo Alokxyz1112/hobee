@@ -13,13 +13,13 @@ class FakeArchive {
   int size = 3;
   FakeArchive(this.times);
 
-  Future<List<Map<String, dynamic>>> page(Follow f, {int? after, int? before}) async {
+  Future<List<Map<String, dynamic>>> page(Follow f, {int? after, int? before, int limit = 100}) async {
     calls.add('${f.label} after=$after before=$before');
     if (failing.contains(f.label)) throw Exception('HTTP 500');
     final ts = (times[f.label] ?? const <int>[]).where((t) => (after == null || t > after) && (before == null || t < before)).toList()
       ..sort((a, b) => b.compareTo(a));
     return [
-      for (final t in ts.take(size))
+      for (final t in ts.take(limit < size ? limit : size))
         {
           'id': '${f.name}_$t', 'title': 't', 'subreddit': f.kind == FollowKind.sub ? f.name : 'any', 'author': f.kind == FollowKind.user ? f.name : 'a',
           'permalink': '/p', 'created_utc': t, 'url': 'https://i.redd.it/${f.name}$t.jpg', 'post_hint': 'image',
@@ -57,6 +57,9 @@ void main() {
     Following.fetchPage = fake.page;
     Following.budget = 2;
     Following.pageSize = 3;
+    Following.refreshSize = 3;
+    Following.gap = Duration.zero;
+    Following.cooldown = Duration.zero;
     Following.debugReset();
   });
 
@@ -96,12 +99,28 @@ void main() {
     expect((await Db.load(src)).any((p) => p.id == 'aa_130'), isTrue);
   });
 
-  test('a failing entry is counted and the round goes on', () async {
+  test('a failing entry is retried once at the end of the round, then counted', () async {
     Following.budget = 10;
     fake.failing.add('r/bb');
     await Following.fetchMore(src, now: t0);
+    expect(fake.calls.where((c) => c.startsWith('r/bb')).length, 2);
     expect(followingStatus.value, contains('1 failed'));
     expect(await posts(), greaterThan(0));
+  });
+
+  test('refresh of an entry with posts asks for a small page of newer posts only', () async {
+    Following.budget = 10;
+    Following.refreshSize = 1;
+    final sizes = <int>[];
+    Following.fetchPage = (f, {after, before, limit = 100}) {
+      if (after != null) sizes.add(limit);
+      return fake.page(f, after: after, before: before, limit: limit);
+    };
+    await Following.fetchMore(src, now: t0);
+    Following.debugReset();
+    await Following.fetchMore(src, fromStart: true, now: t0.add(const Duration(hours: 1)));
+    expect(sizes, isNotEmpty);
+    expect(sizes.every((s) => s == 1), isTrue);
   });
 
   test('empty profile says so and is done', () async {

@@ -39,16 +39,39 @@ class FollowState {
 }
 
 class Following {
-  /// Requests per fetchMore call (~1 s each with Arctic Shift pacing).
-  static int budget = 8;
+  /// Requests per fetchMore call.
+  static int budget = 4; // keeps one call well under the grid's 2-minute timeout, even with a cooldown
   static const freshFor = Duration(minutes: 30);
   static int pageSize = 100; // Arctic Shift maximum; fewer rows back means the entry has no older posts
+  /// Refreshing an entry that already has posts only asks for this many newer ones (cheaper for the archive).
+  static int refreshSize = 25;
+  /// Arctic Shift answers "slow down" (HTTP 422) at about one request a second, so the feed goes gentler:
+  /// at least [gap] between its requests, and a [cooldown] pause after a slow-down before going on.
+  static Duration gap = const Duration(seconds: 3);
+  static Duration cooldown = const Duration(seconds: 30);
+  static DateTime? _last;
 
   /// One page of an entry from Arctic Shift. Test seam.
-  static Future<List<Map<String, dynamic>>> Function(Follow f, {int? after, int? before}) fetchPage = _arctic;
+  static Future<List<Map<String, dynamic>>> Function(Follow f, {int? after, int? before, int limit}) fetchPage = _arctic;
 
-  static Future<List<Map<String, dynamic>>> _arctic(Follow f, {int? after, int? before}) => Archive.recentPosts(
-      sub: f.kind == FollowKind.sub ? f.name : null, author: f.kind == FollowKind.user ? f.name : null, after: after, before: before, limit: pageSize);
+  static Future<List<Map<String, dynamic>>> _arctic(Follow f, {int? after, int? before, int limit = 100}) => Archive.recentPosts(
+      sub: f.kind == FollowKind.sub ? f.name : null, author: f.kind == FollowKind.user ? f.name : null, after: after, before: before, limit: limit);
+
+  static Future<List<Map<String, dynamic>>> _paced(Follow f, {int? after, int? before, required int limit}) async {
+    final l = _last;
+    if (l != null) {
+      final wait = gap - DateTime.now().difference(l);
+      if (!wait.isNegative) await Future.delayed(wait);
+    }
+    try {
+      return await fetchPage(f, after: after, before: before, limit: limit);
+    } finally {
+      _last = DateTime.now();
+    }
+  }
+
+  static bool _busy(Object e) => RegExp(r'slow down|busy|rate|429|timed out|timeout', caseSensitive: false).hasMatch('$e');
+  static final _retried = <String, Set<String>>{}; // source -> entries already retried this round
 
   static final _round = <String, List<Follow>>{}; // source -> entries still to refresh this round
   static final _checked = <String, (int, int, int)>{}; // source -> (checked, total, failed) this round
@@ -77,6 +100,7 @@ class Following {
         ..sort((a, b) => states[a]!.at.compareTo(states[b]!.at));
       _round[source] = stale;
       _checked[source] = (follows.length - stale.length, follows.length, 0);
+      _retried[source] = {};
     }
     final queue = _round[source]!;
     var (checked, total, failed) = _checked[source]!;
@@ -94,13 +118,20 @@ class Following {
       added += posts.length;
     }
 
+    void status() {
+      _checked[source] = (checked, total, failed);
+      followingStatus.value = queue.isNotEmpty
+          ? 'Checked $checked of $total${failed > 0 ? ' · $failed failed' : ''} · Arctic Shift'
+          : 'All $total checked${failed > 0 ? ' · $failed failed' : ''} · scroll for older posts';
+    }
+
     // 1) refresh: newest posts first
     while (queue.isNotEmpty && used < budget) {
       final f = queue.removeAt(0);
       final s = states[f]!;
       used++;
       try {
-        final rows = await fetchPage(f, after: s.newest);
+        final rows = await _paced(f, after: s.newest, limit: s.newest == null ? pageSize : refreshSize);
         await save(f, rows);
         final ts = [for (final r in rows) _ts(r)].where((x) => x > 0).toList();
         if (ts.isNotEmpty) {
@@ -116,10 +147,18 @@ class Following {
         s.at = t;
         await _save(source, f, s);
         checked++;
-      } catch (_) {
-        failed++;
-        checked++;
+      } catch (e) {
+        // First failure: try this entry again at the end of the round (after a pause if the archive said
+        // to slow down). Second failure: count it and move on; the next round retries it.
+        if (_retried.putIfAbsent(source, () => {}).add(f.key)) {
+          queue.add(f);
+          if (_busy(e)) await Future.delayed(cooldown);
+        } else {
+          failed++;
+          checked++;
+        }
       }
+      status();
     }
 
     // 2) page back: entries with the newest unexplored history first, so the feed stays roughly in date order.
@@ -129,22 +168,19 @@ class Following {
       for (final f in open.take(budget - used)) {
         final s = states[f]!;
         try {
-          final rows = await fetchPage(f, before: s.oldest);
+          final rows = await _paced(f, before: s.oldest, limit: pageSize);
           await save(f, rows);
           final ts = [for (final r in rows) _ts(r)].where((x) => x > 0).toList();
           if (ts.isNotEmpty) s.oldest = ts.reduce((a, b) => a < b ? a : b);
           s.done = rows.length < pageSize || ts.isEmpty;
           await _save(source, f, s);
-        } catch (_) {
-          failed++;
+        } catch (e) {
+          if (_busy(e)) await Future.delayed(cooldown); // try again on a later call
         }
       }
     }
 
-    _checked[source] = (checked, total, failed);
-    followingStatus.value = queue.isNotEmpty
-        ? 'Checked $checked of $total${failed > 0 ? ' · $failed failed' : ''} · Arctic Shift'
-        : 'All $total checked${failed > 0 ? ' · $failed failed' : ''} · scroll for older posts';
+    status();
     final allDone = queue.isEmpty && follows.every((f) => states[f]!.done);
     await Db.setCursor(source, allDone ? null : 'more');
     return allDone && added == 0 ? -1 : added;
@@ -162,6 +198,8 @@ class Following {
   static void debugReset() {
     _round.clear();
     _checked.clear();
+    _retried.clear();
+    _last = null;
     followingStatus.value = null;
   }
 }
