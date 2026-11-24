@@ -29,8 +29,6 @@ void main() {
 
 Future<void> _main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Room for prefetched viewer originals (decoded up to 4096 px) next to the grid thumbnails. Default is 100 MB.
-  PaintingBinding.instance.imageCache.maximumSizeBytes = 256 << 20;
   await _safe('crashlog', CrashLog.init);
   final sp = await SharedPreferences.getInstance();
   // If the last launch died before the first frame settled, start in safe mode: drop saved search state.
@@ -56,9 +54,10 @@ Future<void> _main() async {
   await _safe('suggest', () async => sp.remove('suggestPrefs'));
   await _safe('video', VideoPrefs.load);
   await _safe('auth', Auth.i.init);
-  // Thumbs are decoded at display size (cacheWidth), so 120 MB holds plenty without OOM pressure on big lists.
+  // Thumbs are decoded at display size (cacheWidth); the extra room holds the viewer's prefetched originals
+  // (decoded up to 4096 px, Phase 2), which a 120 MB cache evicted before they were shown.
   PaintingBinding.instance.imageCache
-    ..maximumSizeBytes = 120 << 20
+    ..maximumSizeBytes = 256 << 20
     ..maximumSize = 600;
   runApp(const HobeeApp());
   // Startup counts as finished once the first frames are on screen. The old fixed 6 s timer also fired safe
