@@ -77,6 +77,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     subSort.addListener(_switchSort);
     viewFilters.addListener(_rebuildSoon);
     Dedupe.version.addListener(_rebuildSoon);
+    videoFrameHashing.addListener(_rebuildSoon);
     originalShapeGrid.addListener(_shapeChanged);
     MediaCheck.gone.addListener(_goneChanged);
     dateRange.addListener(_seek);
@@ -95,6 +96,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     subSort.removeListener(_switchSort);
     viewFilters.removeListener(_rebuildSoon);
     Dedupe.version.removeListener(_rebuildSoon);
+    videoFrameHashing.removeListener(_rebuildSoon);
     originalShapeGrid.removeListener(_shapeChanged);
     _rebuildT?.cancel();
     MediaCheck.gone.removeListener(_goneChanged);
@@ -473,6 +475,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                 SliverPersistentHeader(pinned: true, delegate: _Header(s.label, '${s.idx.length}', cs)),
                 _masonry(s, (i) {
                     final e = entries[i];
+                    if (dupesOn && !textish) Dedupe.wantFrames(e.post); // no-op unless 'Compare video frames' is on
                     final dup = copies[e.post.id];
                     return GestureDetector(
                       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => Viewer(entries: entries, start: i))),

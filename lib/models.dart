@@ -17,13 +17,15 @@ class MediaItem {
   final String? preview;
   /// Pixel size of the media when the post JSON gives it; null for many RSS/Redlib/archive rows.
   final int? width, height;
-  MediaItem(this.type, this.url, this.thumb, {this.hls, this.redditVideo = false, this.preview, this.width, this.height});
+  /// Video length in seconds when the post JSON gives it (reddit_video.duration); null otherwise.
+  final double? duration;
+  MediaItem(this.type, this.url, this.thumb, {this.hls, this.redditVideo = false, this.preview, this.width, this.height, this.duration});
 
   /// width / height, or null when unknown.
   double? get aspect => (width ?? 0) > 0 && (height ?? 0) > 0 ? width! / height! : null;
 
   MediaItem withSize(int? w, int? h) =>
-      MediaItem(type, url, thumb, hls: hls, redditVideo: redditVideo, preview: preview, width: w, height: h);
+      MediaItem(type, url, thumb, hls: hls, redditVideo: redditVideo, preview: preview, width: w, height: h, duration: duration);
 
   /// URL the viewer and downloads should use.
   String get full => originalQuality.value || preview == null || preview!.isEmpty ? url : preview!;
@@ -172,8 +174,10 @@ List<MediaItem> _parseMedia(Map<String, dynamic> d0) {
   final rv = d['secure_media']?['reddit_video'] ?? d['media']?['reddit_video'];
   if (rv != null) {
     final fb = unesc(rv['fallback_url'] ?? '');
+    final dur = rv['duration'];
     out.add(MediaItem(MediaType.video, fb, thumb,
-        hls: rv['hls_url'] != null ? unesc(rv['hls_url']) : Embeds.redditHls(fb), redditVideo: true));
+        hls: rv['hls_url'] != null ? unesc(rv['hls_url']) : Embeds.redditHls(fb), redditVideo: true,
+        duration: dur is num && dur > 0 ? dur.toDouble() : null));
     return out;
   }
 
