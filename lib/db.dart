@@ -10,11 +10,12 @@ class Db {
   static Database? _db;
   static Future<Database> get db async {
     if (_db != null) return _db!;
-    _db = await openDatabase(p.join(await getDatabasesPath(), 'hobee.db'), version: 5, onUpgrade: (db, o, n) async {
+    _db = await openDatabase(p.join(await getDatabasesPath(), 'hobee.db'), version: 6, onUpgrade: (db, o, n) async {
       if (o < 2) await _v2(db);
       if (o < 3) await _v3(db);
       if (o < 4) await _v4(db);
       if (o < 5) await _v5(db);
+      if (o < 6) await _v6(db);
     }, onCreate: (db, v) async {
       await db.execute('CREATE TABLE posts(source TEXT, id TEXT, created INTEGER, json TEXT, PRIMARY KEY(source,id))');
       await db.execute('CREATE INDEX idx_src_created ON posts(source, created)');
@@ -23,8 +24,15 @@ class Db {
       await _v3(db);
       await _v4(db);
       await _v5(db);
+      await _v6(db);
     });
     return _db!;
+  }
+
+  /// v6: local profiles and the subreddits/users each one follows (Following feed, no login).
+  static Future<void> _v6(Database db) async {
+    await db.execute('CREATE TABLE IF NOT EXISTS profiles(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE COLLATE NOCASE, created INTEGER)');
+    await db.execute('CREATE TABLE IF NOT EXISTS follows(profile INTEGER, kind TEXT, name TEXT COLLATE NOCASE, added INTEGER, PRIMARY KEY(profile, kind, name))');
   }
 
   static Future<void> _v2(Database db) async {

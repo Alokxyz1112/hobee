@@ -1,3 +1,4 @@
+import 'follows_ui.dart';
 import 'dedupe.dart';
 import 'masonry.dart';
 import 'filters.dart';
@@ -203,6 +204,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Viewed users cleared')));
             },
           ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.playlist_add_check),
+          title: const Text('Following lists'),
+          subtitle: const Text('Import subreddits and users into profiles, to browse them without logging in.'),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FollowsScreen())),
         ),
         ListTile(
           leading: const Icon(Icons.bug_report_outlined),
