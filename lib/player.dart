@@ -102,6 +102,22 @@ class _VideoPageState extends State<VideoPage> {
   Timer? hide;
   String? flash; // "-10s" / "+10s"
   Timer? flashT;
+  final _zoom = TransformationController();
+  bool zoomed = false;
+
+  /// Pinch zoom: one finger pans only while zoomed in, so a plain swipe still goes to the next item.
+  void _zoomEnd(ScaleEndDetails _) {
+    final z = _zoom.value.getMaxScaleOnAxis() > 1.01;
+    if (z == zoomed) return;
+    setState(() => zoomed = z);
+    if (widget.active) viewerZoomed.value = z;
+  }
+
+  void _resetZoom() {
+    _zoom.value = Matrix4.identity();
+    if (zoomed) setState(() => zoomed = false);
+    if (widget.active) viewerZoomed.value = false;
+  }
 
   @override
   void initState() {
@@ -240,6 +256,8 @@ class _VideoPageState extends State<VideoPage> {
         _exitFull();
       }
       _release(); // free the decoder as soon as you swipe away
+      _zoom.value = Matrix4.identity();
+      zoomed = false;
       if (mounted) setState(() {});
     }
   }
@@ -248,6 +266,7 @@ class _VideoPageState extends State<VideoPage> {
   void dispose() {
     hide?.cancel();
     flashT?.cancel();
+    _zoom.dispose();
     _release();
     WakelockPlus.disable();
     if (full) _exitFull();
@@ -277,12 +296,23 @@ class _VideoPageState extends State<VideoPage> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: _toggleUi,
-      onDoubleTapDown: (d) => _skip(d.localPosition.dx < w / 2 ? -10 : 10),
+      // Double tap: zoomed in → back to normal size; otherwise skip 10 s back (left half) or ahead (right half).
+      onDoubleTapDown: (d) => zoomed ? _resetZoom() : _skip(d.localPosition.dx < w / 2 ? -10 : 10),
       onDoubleTap: () {},
       child: Container(
         color: Colors.black,
         child: Stack(alignment: Alignment.center, children: [
-          Center(child: AspectRatio(aspectRatio: val.aspectRatio, child: VideoPlayer(v))),
+          Positioned.fill(
+            child: InteractiveViewer(
+              key: const Key('video-zoom'),
+              transformationController: _zoom,
+              minScale: 1,
+              maxScale: 4,
+              panEnabled: zoomed,
+              onInteractionEnd: _zoomEnd,
+              child: Center(child: AspectRatio(aspectRatio: val.aspectRatio, child: VideoPlayer(v))),
+            ),
+          ),
           if (val.isBuffering) const CircularProgressIndicator(color: Colors.white70),
           if (flash != null)
             Container(
