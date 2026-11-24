@@ -15,7 +15,15 @@ class MediaItem {
   final bool redditVideo;
   /// Resized/recompressed Reddit preview of the same media (fallback when the original fails, or when 'Original quality' is off).
   final String? preview;
-  MediaItem(this.type, this.url, this.thumb, {this.hls, this.redditVideo = false, this.preview});
+  /// Pixel size of the media when the post JSON gives it; null for many RSS/Redlib/archive rows.
+  final int? width, height;
+  MediaItem(this.type, this.url, this.thumb, {this.hls, this.redditVideo = false, this.preview, this.width, this.height});
+
+  /// width / height, or null when unknown.
+  double? get aspect => (width ?? 0) > 0 && (height ?? 0) > 0 ? width! / height! : null;
+
+  MediaItem withSize(int? w, int? h) =>
+      MediaItem(type, url, thumb, hls: hls, redditVideo: redditVideo, preview: preview, width: w, height: h);
 
   /// URL the viewer and downloads should use.
   String get full => originalQuality.value || preview == null || preview!.isEmpty ? url : preview!;
@@ -90,7 +98,42 @@ String _thumb(Map d) {
   return '';
 }
 
+int? _px(Object? v) => v is num && v > 0 ? v.toInt() : null;
+
+/// Post-level media size: reddit_video, then preview source, then oEmbed. (null, null) when none is given.
+(int?, int?) mediaSize(Map d) {
+  (int?, int?)? pair(Object? m, String w, String h) {
+    if (m is! Map) return null;
+    final a = _px(m[w]), b = _px(m[h]);
+    return a != null && b != null ? (a, b) : null;
+  }
+  try {
+    final sm = d['secure_media'] is Map ? d['secure_media'] as Map : null;
+    final mm = d['media'] is Map ? d['media'] as Map : null;
+    final rv = pair(sm?['reddit_video'], 'width', 'height') ?? pair(mm?['reddit_video'], 'width', 'height');
+    if (rv != null) return rv;
+    final pv = d['preview'];
+    if (pv is Map && pv['images'] is List && (pv['images'] as List).isNotEmpty) {
+      final img = (pv['images'] as List).first;
+      final s = pair(img is Map ? img['source'] : null, 'width', 'height');
+      if (s != null) return s;
+    }
+    final oe = pair(sm?['oembed'], 'width', 'height') ?? pair(mm?['oembed'], 'width', 'height');
+    if (oe != null) return oe;
+  } catch (_) {}
+  return (null, null);
+}
+
 List<MediaItem> parseMedia(Map<String, dynamic> d0) {
+  final out = _parseMedia(d0);
+  if (out.length != 1 || out.first.aspect != null) return out;
+  final cp = d0['crosspost_parent_list'];
+  final d = cp is List && cp.isNotEmpty && cp.first is Map ? cp.first as Map : d0;
+  final (w, h) = mediaSize(d);
+  return w == null ? out : [out.first.withSize(w, h)];
+}
+
+List<MediaItem> _parseMedia(Map<String, dynamic> d0) {
   Map<String, dynamic> d = d0;
   final cp = d0['crosspost_parent_list'];
   if (cp is List && cp.isNotEmpty) d = Map<String, dynamic>.from(cp.first);
@@ -107,16 +150,17 @@ List<MediaItem> parseMedia(Map<String, dynamic> d0) {
       final s = m['s'] ?? {};
       final p = (m['p'] as List?) ?? [];
       String th = p.isNotEmpty ? unesc((p.length > 2 ? p[2] : p.last)['u'] ?? '') : '';
+      final w = _px(s['x']), h = _px(s['y']);
       if (m['e'] == 'AnimatedImage') {
         if (s['mp4'] != null) {
-          out.add(MediaItem(MediaType.video, unesc(s['mp4']), th.isEmpty ? unesc(s['gif'] ?? '') : th));
+          out.add(MediaItem(MediaType.video, unesc(s['mp4']), th.isEmpty ? unesc(s['gif'] ?? '') : th, width: w, height: h));
         } else if (s['gif'] != null) {
-          out.add(MediaItem(MediaType.gif, unesc(s['gif']), th.isEmpty ? unesc(s['gif']) : th));
+          out.add(MediaItem(MediaType.gif, unesc(s['gif']), th.isEmpty ? unesc(s['gif']) : th, width: w, height: h));
         }
       } else if (s['u'] != null) {
         final u = unesc(s['u']);
         final o = galleryOriginal('${it['media_id']}', m) ?? originalOf(u);
-        out.add(MediaItem(MediaType.image, o, th.isEmpty ? u : th, preview: o == u ? null : u));
+        out.add(MediaItem(MediaType.image, o, th.isEmpty ? u : th, preview: o == u ? null : u, width: w, height: h));
       }
     }
     if (out.isNotEmpty) return out;
