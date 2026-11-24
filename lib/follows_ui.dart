@@ -99,12 +99,13 @@ class _FollowsScreenState extends State<FollowsScreen> {
   Future<void> _export({required bool csv}) async {
     final name = profiles.firstWhere((p) => p.id == shown).name.replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_');
     try {
-      final path = await FilePicker.platform.saveFile(
+      final saved = await FilePicker.saveFile(
         dialogTitle: 'Save list',
         fileName: 'hobees_$name.${csv ? 'csv' : 'txt'}',
         bytes: utf8.encode(exportFollows(follows, csv: csv)),
+        mimeType: csv ? 'text/csv' : 'text/plain',
       );
-      if (path != null) _snack('Saved ${follows.length} entries');
+      if (saved != null) _snack('Saved ${follows.length} entries');
     } catch (e) {
       _snack('Couldn\'t save: $e');
     }
@@ -257,10 +258,9 @@ class _ImportScreenState extends State<ImportScreen> {
 
   Future<void> _pick() async {
     try {
-      final r = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['txt', 'csv'], withData: true);
-      final bytes = r?.files.single.bytes;
-      if (bytes == null) return;
-      text.text = utf8.decode(bytes, allowMalformed: true);
+      final files = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['txt', 'csv']);
+      if (files.isEmpty) return;
+      text.text = utf8.decode(await files.first.readAsBytes(), allowMalformed: true);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Couldn\'t read the file: $e')));
     }

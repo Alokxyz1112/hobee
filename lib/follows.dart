@@ -16,7 +16,7 @@ class Follow {
   String get label => '${kind == FollowKind.sub ? 'r' : 'u'}/$name';
 
   @override
-  bool operator ==(Object o) => o is Follow && o.key == key;
+  bool operator ==(Object other) => other is Follow && other.key == key;
   @override
   int get hashCode => key.hashCode;
   @override
