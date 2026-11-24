@@ -46,7 +46,7 @@ void main() {
       await d.delete(t);
     }
     pid = await FollowStore.createProfile('Test');
-    await FollowStore.add(pid, parseFollowList('r/aa r/bb r/cc u/dddd').follows);
+    await FollowStore.add(pid, parseFollowList('r/aa r/bb r/cc u/ddd').follows);
     src = followingKey(pid);
     fake = FakeArchive({
       'r/aa': [100, 90, 80, 70, 60],
