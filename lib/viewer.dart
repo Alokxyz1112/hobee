@@ -358,6 +358,7 @@ class PhotoFallbackState extends State<PhotoFallback> {
         // The thumbnail stays underneath; the full image fades in over it.
         if (ph != null) _placeholder(),
         AnimatedOpacity(
+          key: const Key('full-fade'),
           opacity: loaded ? 1 : 0,
           duration: const Duration(milliseconds: 200),
           child: PhotoView(
