@@ -412,7 +412,18 @@ class PhotoFallbackState extends State<PhotoFallback> {
         if (!loaded)
           ph == null
               ? const Center(child: CircularProgressIndicator())
-              : const Align(alignment: Alignment.bottomCenter, child: LinearProgressIndicator(minHeight: 2)),
+              // Full image still loading over the thumbnail: a small spinner in the top-right corner, under the
+              // title bar, where it doesn't cover the picture.
+              : Positioned(
+                  top: MediaQuery.paddingOf(context).top + kToolbarHeight + 12,
+                  right: 12,
+                  child: Container(
+                    key: const Key('full-loading'),
+                    padding: const EdgeInsets.all(6),
+                    decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+                    child: const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70)),
+                  ),
+                ),
       ]),
     );
   }
