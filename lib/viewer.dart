@@ -13,7 +13,7 @@ import 'player.dart';
 import 'source_bar.dart';
 import 'sub_users.dart';
 
-const viewerUserAgent = 'android:com.alok.hobee:v$appVersion (gallery app)';
+const viewerUserAgent = 'android:io.github.cscott0108.hobees:v$appVersion (gallery app)';
 
 class Entry {
   final Post post;

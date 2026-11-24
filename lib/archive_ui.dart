@@ -94,7 +94,7 @@ class FallbackImage extends StatefulWidget {
   State<FallbackImage> createState() => _FallbackImageState();
 }
 
-const imageHeaders = {'User-Agent': 'android:com.alok.hobee:v$appVersion (gallery app)'};
+const imageHeaders = {'User-Agent': 'android:io.github.cscott0108.hobees:v$appVersion (gallery app)'};
 const _autoRetries = 2;
 
 class _FallbackImageState extends State<FallbackImage> {
