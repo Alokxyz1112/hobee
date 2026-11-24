@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'db.dart';
+import 'embeds.dart';
 import 'models.dart';
 
 /// Duplicate collapsing for reposts / crossposts of the same image or gallery.
@@ -151,6 +152,39 @@ class Dedupe {
 
   static final _file = RegExp(r'(?:i\.redd\.it|i\.imgur\.com|preview\.redd\.it|external-preview\.redd\.it)/([A-Za-z0-9_-]+)');
 
+  static final _vReddit = RegExp(r'v\.redd\.it/([A-Za-z0-9]+)');
+  static final _imgurVideo = RegExp(r'imgur\.com/([A-Za-z0-9]{5,8})\.(?:gifv|mp4)(?:[?#]|$)', caseSensitive: false);
+
+  /// Video file ids of a single-media post: v.redd.it id, RedGIFs id, Imgur .gifv/.mp4 id (all hosts).
+  /// Looks at the media item, the post URL, and reddit_video fallback/HLS/DASH urls (own and crosspost parent).
+  static Iterable<String> videoKeys(Post p) sync* {
+    final r = p.raw;
+    final m = p.media.first;
+    final urls = <String>{m.url, ?m.hls, '${r['url'] ?? ''}', '${r['url_overridden_by_dest'] ?? ''}'};
+    final cp = r['crosspost_parent_list'];
+    for (final d in [r, if (cp is List && cp.isNotEmpty && cp.first is Map) cp.first as Map]) {
+      for (final k in ['secure_media', 'media']) {
+        final rv = d[k] is Map ? (d[k] as Map)['reddit_video'] : null;
+        if (rv is Map) {
+          for (final f in ['fallback_url', 'hls_url', 'dash_url']) {
+            if (rv[f] is String) urls.add(rv[f] as String);
+          }
+        }
+      }
+    }
+    final out = <String>{};
+    for (final u in urls) {
+      if (u.isEmpty) continue;
+      final v = _vReddit.firstMatch(u);
+      if (v != null) out.add('v:vr:${v.group(1)}');
+      final rg = Embeds.redgifsId(u);
+      if (rg != null) out.add('v:rg:$rg');
+      final im = _imgurVideo.firstMatch(u);
+      if (im != null) out.add('v:im:${im.group(1)}');
+    }
+    yield* out;
+  }
+
   static Iterable<String> exactKeys(Post p) sync* {
     final r = p.raw;
     final cp = r['crosspost_parent'];
@@ -164,6 +198,7 @@ class Dedupe {
       return;
     }
     if (p.media.length == 1) {
+      yield* videoKeys(p);
       for (final u in [p.media.first.url, '${r['url'] ?? ''}']) {
         final m = _file.firstMatch(originalOf(u));
         if (m != null) yield 'f:${m.group(1)}';
