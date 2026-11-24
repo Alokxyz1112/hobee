@@ -13,7 +13,9 @@ import 'models.dart';
 /// user. Each call does a small batch (so the grid fills in as it goes):
 ///  1. refresh round: newest posts of every entry not checked in the last [freshFor], stalest first,
 ///     asking only for posts newer than the newest one already seen;
-///  2. then paging back: the entries whose oldest loaded post is newest go one page further back.
+///  2. fill-back: entries whose loaded posts don't yet reach back [subWindow] (subreddits) or [userWindow]
+///     (users) go further back, newest gap first, at most [fillPages] pages per entry each round;
+///  3. then, when you scroll to the end, paging back one page further per entry.
 bool isFollowing(String source) => source.startsWith('fol:');
 String followingKey(int profile) => 'fol:$profile';
 int? followingProfile(String source) => isFollowing(source) ? int.tryParse(source.substring(4)) : null;
@@ -49,6 +51,11 @@ class Following {
   static int pageSize = 100; // Arctic Shift maximum; fewer rows back means the entry has no older posts
   /// Refreshing an entry that already has posts only asks for this many newer ones (cheaper for the archive).
   static int refreshSize = 25;
+  /// How far back a refresh round preloads on its own; older posts load when you scroll.
+  static Duration subWindow = const Duration(days: 60);
+  static Duration userWindow = const Duration(days: 180);
+  /// Fill-back pages per entry per round, so a very busy subreddit can't hold up the rest for hours.
+  static int fillPages = 10;
   /// Arctic Shift answers "slow down" (HTTP 422) at about one request a second, so the feed adapts: it starts
   /// at [minGap] between its requests, doubles the gap (up to [maxGap]) after every slow-down and eases back
   /// towards [minGap] after each success. It runs at whatever pace the archive allows from this network.
@@ -126,6 +133,12 @@ class Following {
 
   static final _round = <String, List<Follow>>{}; // source -> entries still to refresh this round
   static final _checked = <String, (int, int, int)>{}; // source -> (checked, total, failed) this round
+  static final _filled = <String, Map<String, int>>{}; // source -> fill-back pages used per entry this round
+  static final _filling = <String, bool>{}; // source -> fill-back still has work this round
+
+  /// Oldest created_utc (seconds) the round preloads for [f].
+  static int horizon(Follow f, int nowMs) =>
+      (nowMs - (f.kind == FollowKind.sub ? subWindow : userWindow).inMilliseconds) ~/ 1000;
 
   static String _unitKey(String source, Follow f) => '$source|${f.key}';
 
@@ -162,6 +175,7 @@ class Following {
       _round[source] = stale;
       _checked[source] = (follows.length - stale.length, follows.length, 0);
       _retried[source] = {};
+      _filled[source] = {};
     }
     final queue = _round[source]!;
     var (checked, total, failed) = _checked[source]!;
@@ -180,12 +194,25 @@ class Following {
       if (posts.isNotEmpty) version.value++;
     }
 
-    void status() {
+    final filled = _filled.putIfAbsent(source, () => {});
+    // Entries whose posts don't reach back to their window yet, newest gap first.
+    List<Follow> toFill() => follows.where((f) {
+          final s = states[f]!;
+          return !s.done && s.oldest != null && s.oldest! > horizon(f, t) && (filled[f.key] ?? 0) < fillPages;
+        }).toList()
+          ..sort((a, b) => states[b]!.oldest!.compareTo(states[a]!.oldest!));
+
+    void status([int? fillLeft]) {
       _checked[source] = (checked, total, failed);
-      final mins = (queue.length * (gap.inMilliseconds + 1500) / 60000).ceil();
-      followingStatus.value = queue.isNotEmpty
-          ? 'Checked $checked of $total${failed > 0 ? ' · $failed failed' : ''} · ~$mins min left'
-          : 'All $total checked${failed > 0 ? ' · $failed failed' : ''} · scroll for older posts';
+      final fl = failed > 0 ? ' · $failed failed' : '';
+      if (queue.isNotEmpty) {
+        final mins = (queue.length * (gap.inMilliseconds + 1500) / 60000).ceil();
+        followingStatus.value = 'Checked $checked of $total$fl · ~$mins min left';
+      } else if (fillLeft != null && fillLeft > 0) {
+        followingStatus.value = 'All $total checked$fl · filling back: $fillLeft to go';
+      } else {
+        followingStatus.value = 'All $total checked$fl · scroll for older posts';
+      }
     }
 
     // 1) refresh: newest posts first
@@ -223,12 +250,18 @@ class Following {
       status();
     }
 
-    // 2) page back: entries with the newest unexplored history first, so the feed stays roughly in date order.
+    // 2) fill-back to the window, then 3) page back on scroll: entries with the newest unexplored history
+    // first, so the feed stays roughly in date order.
+    var fill = queue.isEmpty ? toFill() : <Follow>[];
     if (queue.isEmpty && used < budget) {
-      final open = follows.where((f) => !states[f]!.done && states[f]!.oldest != null).toList()
-        ..sort((a, b) => states[b]!.oldest!.compareTo(states[a]!.oldest!));
+      final open = fill.isNotEmpty
+          ? fill
+          : (follows.where((f) => !states[f]!.done && states[f]!.oldest != null).toList()
+            ..sort((a, b) => states[b]!.oldest!.compareTo(states[a]!.oldest!)));
+      final filling = fill.isNotEmpty;
       for (final f in open.take(budget - used)) {
         final s = states[f]!;
+        if (filling) filled[f.key] = (filled[f.key] ?? 0) + 1; // a failed page counts too, so errors can't loop
         try {
           final rows = await _paced(f, before: s.oldest, limit: pageSize);
           await save(f, rows);
@@ -242,14 +275,16 @@ class Following {
       }
     }
 
-    status();
+    if (queue.isEmpty) fill = toFill();
+    _filling[source] = fill.isNotEmpty;
+    status(fill.length);
     final allDone = queue.isEmpty && follows.every((f) => states[f]!.done);
     await Db.setCursor(source, allDone ? null : 'more');
     return allDone && added == 0 ? -1 : added;
   }
 
-  /// True while a refresh round still has entries to check (the grid keeps fetching on its own until done).
-  static bool refreshing(String source) => _round[source]?.isNotEmpty ?? false;
+  /// True while a refresh round still has entries to check or fill back (it keeps going on its own until done).
+  static bool refreshing(String source) => (_round[source]?.isNotEmpty ?? false) || (_filling[source] ?? false);
 
   static int _ts(Map d) {
     final v = d['created_utc'];
@@ -261,6 +296,8 @@ class Following {
     _round.clear();
     _checked.clear();
     _retried.clear();
+    _filled.clear();
+    _filling.clear();
     _last = null;
     gap = minGap;
     followingKind.value = 0;

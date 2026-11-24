@@ -59,6 +59,7 @@ void main() {
     Following.budget = 2;
     Following.pageSize = 3;
     Following.refreshSize = 3;
+    Following.fillPages = 10;
     Following.minGap = Duration.zero;
     Following.maxGap = Duration.zero;
     Following.gap = Duration.zero;
@@ -160,6 +161,50 @@ void main() {
     expect(users.every((p) => p.author == 'ddd'), isTrue);
     followingKind.value = 0;
     expect(Following.applyKind(all, src).length, all.length);
+  });
+
+  group('fill-back window', () {
+    final now = t0.millisecondsSinceEpoch ~/ 1000;
+    int daysAgo(int d) => now - d * 86400;
+
+    test('a round preloads 2 months of subreddits and 6 months of users, newest gap first; older on scroll', () async {
+      Following.budget = 10;
+      fake.times
+        ..['r/aa'] = [for (final d in [1, 10, 30, 50, 70, 90, 110, 130]) daysAgo(d)]
+        ..['r/bb'] = []
+        ..['u/ddd'] = [for (final d in [1, 100, 150, 170, 200, 300, 400]) daysAgo(d)];
+      await Following.fetchMore(src, now: t0);
+      // After the newest pages: aa reaches back 30 days (window 60), ddd 150 days (window 180).
+      // aa's gap starts later (newer), so it goes first; one page each reaches past the window.
+      expect(fake.calls.skip(4), ['r/aa after=null before=${daysAgo(30)}', 'u/ddd after=null before=${daysAgo(150)}']);
+      expect(Following.refreshing(src), isFalse, reason: 'both reach their window');
+      expect(followingStatus.value, contains('scroll for older posts'));
+      expect(await posts(), 6 + 6);
+
+      // Scrolling to the end pages back past the window.
+      fake.calls.clear();
+      await Following.fetchMore(src, now: t0);
+      expect(fake.calls, ['r/aa after=null before=${daysAgo(90)}', 'u/ddd after=null before=${daysAgo(300)}']);
+      expect(await posts(), 8 + 7);
+    });
+
+    test('fill-back stops at the page cap for a busy subreddit; the refresher runs it on its own', () async {
+      Following.budget = 1;
+      Following.fillPages = 2;
+      fake.times
+        ..['r/aa'] = [for (var d = 1; d <= 50; d++) daysAgo(d)]
+        ..['r/bb'] = []
+        ..['u/ddd'] = [];
+      FollowingRefresher.start(src);
+      for (var i = 0; i < 100 && (FollowingRefresher.running(src) || followingStatus.value == null); i++) {
+        await Future.delayed(const Duration(milliseconds: 20));
+      }
+      expect(FollowingRefresher.running(src), isFalse);
+      expect(fake.calls.where((c) => c.startsWith('r/aa')).length, 1 + 2, reason: 'newest page + 2 fill pages');
+      expect(await posts(), 9);
+      expect(Following.refreshing(src), isFalse);
+      Following.fillPages = 10;
+    });
   });
 
   test('the refresher runs the whole round on its own', () async {
