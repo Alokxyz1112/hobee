@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 import 'crash_log.dart';
 import 'db.dart';
 import 'embeds.dart';
@@ -117,12 +119,44 @@ class Dedupe {
 
   static const _media = MethodChannel('hobee/media');
 
+  static const _ua = 'android:io.github.cscott0108.hobees:v1.3.7 (personal gallery app)';
+  static const maxFrameFileBytes = 8 << 20;
+
+  /// Smallest copy worth trying first: Reddit serves 220p versions (well under 1 MB for a short clip).
+  static List<String> frameSources(String url) {
+    final m = RegExp(r'^(https://v\.redd\.it/[A-Za-z0-9]+)/').firstMatch(url);
+    if (m == null) return [url];
+    return ['${m.group(1)}/CMAF_220.mp4', '${m.group(1)}/DASH_220.mp4', url];
+  }
+
+  /// Downloads a small copy (streaming a remote file through the retriever can stall), reads the frames
+  /// from the local file, then deletes it.
   static Future<VideoFrames?> _nativeFrames(String url) async {
-    final r = await _media.invokeMapMethod<String, dynamic>('frames', {
-      'url': url,
-      'ua': 'android:io.github.cscott0108.hobees:v1.3.7 (personal gallery app)',
-      'spots': frameSpots,
-    });
+    File? f;
+    Object? last;
+    for (final src in frameSources(url)) {
+      try {
+        final r = await http.get(Uri.parse(src), headers: {'User-Agent': _ua}).timeout(const Duration(seconds: 20));
+        if (r.statusCode != 200 || r.bodyBytes.isEmpty || r.bodyBytes.length > maxFrameFileBytes) {
+          last = 'HTTP ${r.statusCode}, ${r.bodyBytes.length} bytes from $src';
+          continue;
+        }
+        f = File('${(await getTemporaryDirectory()).path}/frames_${src.hashCode.toUnsigned(32)}.mp4');
+        await f.writeAsBytes(r.bodyBytes, flush: true);
+        break;
+      } catch (e) {
+        last = e;
+      }
+    }
+    if (f == null) throw StateError('no downloadable copy ($last)');
+    final Map<String, dynamic>? r;
+    try {
+      r = await _media.invokeMapMethod<String, dynamic>('frames', {'path': f.path, 'spots': frameSpots}).timeout(const Duration(seconds: 30));
+    } finally {
+      try {
+        await f.delete();
+      } catch (_) {}
+    }
     final ms = (r?['durationMs'] as num?)?.toInt() ?? 0;
     final frames = (r?['frames'] as List?) ?? const [];
     if (ms <= 0 || frames.length != frameSpots.length) throw StateError('no video length or frames (durationMs=$ms, frames=${frames.length})');

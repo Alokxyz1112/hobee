@@ -193,6 +193,15 @@ void main() {
       expect(collapse([a, b]).$1.length, 1);
     });
 
+    test('frame grabbing tries Reddit small copies first', () {
+      expect(Dedupe.frameSources('https://v.redd.it/abc123/CMAF_720.mp4?source=fallback'), [
+        'https://v.redd.it/abc123/CMAF_220.mp4',
+        'https://v.redd.it/abc123/DASH_220.mp4',
+        'https://v.redd.it/abc123/CMAF_720.mp4?source=fallback',
+      ]);
+      expect(Dedupe.frameSources('https://i.imgur.com/AbCdEfG.mp4'), ['https://i.imgur.com/AbCdEfG.mp4']);
+    });
+
     test('framesMatch needs 3 of 4 frames close', () {
       expect(Dedupe.framesMatch([0, 0, 0, 0], [1, 3, 7, far]), isTrue);
       expect(Dedupe.framesMatch([0, 0, 0, 0], [1, 3, far, far]), isFalse);

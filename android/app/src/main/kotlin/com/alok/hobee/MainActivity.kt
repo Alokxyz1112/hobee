@@ -31,7 +31,7 @@ class MainActivity : FlutterActivity() {
                             runOnUiThread { result.success(true) }
                         }
                         "frames" -> {
-                            val r = frames(call.argument<String>("url")!!, call.argument<String>("ua") ?: "",
+                            val r = frames(call.argument<String>("path")!!,
                                 call.argument<List<Int>>("spots") ?: listOf(10, 40, 70, 90))
                             runOnUiThread { result.success(r) }
                         }
@@ -127,14 +127,13 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * Small JPEG frames at [spots] percent of a remote video, for duplicate hashing. Reads only what the
-     * retriever needs (range requests). Returns durationMs (0 if unknown) and one byte array per spot
-     * (empty when that frame could not be read).
+     * Small JPEG frames at [spots] percent of a local video file, for duplicate hashing. Returns
+     * durationMs (0 if unknown) and one byte array per spot (empty when that frame could not be read).
      */
-    private fun frames(url: String, ua: String, spots: List<Int>): Map<String, Any> {
+    private fun frames(path: String, spots: List<Int>): Map<String, Any> {
         val r = MediaMetadataRetriever()
         try {
-            r.setDataSource(url, hashMapOf("User-Agent" to ua))
+            r.setDataSource(path)
             val ms = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
             val out = ArrayList<ByteArray>()
             if (ms > 0) {
