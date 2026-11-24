@@ -168,6 +168,23 @@ class Db {
   /// Posts of [source], newest first (read in chunks; big feeds are decoded off the UI thread).
   static Future<List<Post>> load(String source) => _loadChunked('source=?', [source]);
 
+  /// Feeds with more saved posts than this open as a window: the grid loads [windowStep] of the newest posts
+  /// and the next [windowStep] from the database as you scroll, instead of all of them at once.
+  static int windowMin = 2000;
+  static int windowStep = 1000;
+
+  /// Up to [limit] posts of [source], newest first, older than the post ([created], [id]) when given.
+  static Future<List<Post>> loadPage(String source, {required int limit, int? created, String? id}) async {
+    final d = await db;
+    final rows = created == null
+        ? await d.rawQuery('SELECT json FROM posts WHERE source=? ORDER BY created DESC, id DESC LIMIT ?', [source, limit])
+        : await d.rawQuery(
+            'SELECT json FROM posts WHERE source=? AND (created < ? OR (created = ? AND id < ?)) ORDER BY created DESC, id DESC LIMIT ?',
+            [source, created, created, id, limit]);
+    final raw = [for (final r in rows) r['json'] as String];
+    return raw.length > 150 ? await compute(_decodeAll, raw) : _decodeAll(raw);
+  }
+
   static Future<(String?, bool)> cursor(String source) async {
     final d = await db;
     final r = await d.query('cursors', where: 'source=?', whereArgs: [source]);

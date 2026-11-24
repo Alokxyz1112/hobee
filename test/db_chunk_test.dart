@@ -63,4 +63,16 @@ void main() {
     final a = Post.fromJson(d)!, b = Post.fromJson(s)!;
     expect(b.media.map((m) => m.url), a.media.map((m) => m.url));
   });
+
+  test('loadPage pages newest first without gaps or repeats, ties included', () async {
+    await Db.savePosts('src', [post('a', 5), post('b', 9), post('c', 5), post('d', 7), post('e', 5), post('f', 1)]);
+    await Db.savePosts('other', [post('x', 100)]);
+    final seen = <String>[];
+    var page = await Db.loadPage('src', limit: 2);
+    while (page.isNotEmpty) {
+      seen.addAll(page.map((p) => p.id));
+      page = await Db.loadPage('src', limit: 2, created: page.last.created, id: page.last.id);
+    }
+    expect(seen, ['b', 'd', 'e', 'c', 'a', 'f']);
+  });
 }
