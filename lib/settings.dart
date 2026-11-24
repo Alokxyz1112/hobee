@@ -6,6 +6,7 @@ import 'filters.dart';
 import 'viewed.dart';
 import 'crash_log.dart';
 import 'player.dart';
+import 'screen_awake.dart';
 import 'clean.dart';
 import 'clean_image.dart';
 import 'package:flutter/material.dart';
@@ -274,6 +275,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
             value: on,
             onChanged: (v) => VideoPrefs.startMuted.value = v,
           ),
+        ),
+        ValueListenableBuilder(
+          valueListenable: ScreenAwake.mode,
+          builder: (_, m, _) => Column(children: [
+            ListTile(
+              key: const Key('awake-mode'),
+              title: const Text('Keep screen on'),
+              subtitle: const Text('Playing videos always keep it on. While viewing: also pictures in the viewer. Everywhere: whenever Hobees is open.'),
+              trailing: DropdownButton<AwakeMode>(
+                value: m,
+                items: const [
+                  DropdownMenuItem(value: AwakeMode.off, child: Text('Off')),
+                  DropdownMenuItem(value: AwakeMode.viewer, child: Text('While viewing')),
+                  DropdownMenuItem(value: AwakeMode.everywhere, child: Text('Everywhere')),
+                ],
+                onChanged: (v) => ScreenAwake.mode.value = v ?? AwakeMode.off,
+              ),
+            ),
+            if (m != AwakeMode.off)
+              ValueListenableBuilder(
+                valueListenable: ScreenAwake.idleMinutes,
+                builder: (_, n, _) => ListTile(
+                  contentPadding: const EdgeInsets.only(left: 32, right: 16),
+                  dense: true,
+                  title: const Text('Let it turn off after no touch for'),
+                  trailing: DropdownButton<int>(
+                    value: n,
+                    items: [for (final c in ScreenAwake.idleChoices) DropdownMenuItem(value: c, child: Text(c == 0 ? 'No limit' : '$c min'))],
+                    onChanged: (v) => ScreenAwake.idleMinutes.value = v ?? 0,
+                  ),
+                ),
+              ),
+          ]),
         ),
         ValueListenableBuilder(
           valueListenable: originalShapeGrid,

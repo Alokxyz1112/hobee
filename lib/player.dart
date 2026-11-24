@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 import 'embeds.dart';
 import 'models.dart';
+import 'screen_awake.dart';
 
 /// Player settings, saved.
 class VideoPrefs {
@@ -145,7 +145,7 @@ class _VideoPageState extends State<VideoPage> {
     v.removeListener(_tick);
     v.dispose();
     c = null;
-    if (_wasPlaying) WakelockPlus.disable();
+    if (_wasPlaying) ScreenAwake.videoPlaying(false);
     _wasPlaying = false;
   }
 
@@ -182,7 +182,7 @@ class _VideoPageState extends State<VideoPage> {
     final v = c!.value;
     if (v.isPlaying != _wasPlaying) {
       _wasPlaying = v.isPlaying;
-      v.isPlaying ? WakelockPlus.enable() : WakelockPlus.disable();
+      ScreenAwake.videoPlaying(v.isPlaying);
     }
     final now = DateTime.now();
     if (v.isInitialized && now.difference(_lastSave).inSeconds >= 5) {
@@ -268,7 +268,6 @@ class _VideoPageState extends State<VideoPage> {
     flashT?.cancel();
     _zoom.dispose();
     _release();
-    WakelockPlus.disable();
     if (full) _exitFull();
     super.dispose();
   }

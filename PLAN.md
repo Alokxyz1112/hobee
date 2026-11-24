@@ -73,6 +73,7 @@ Goal: paste or import your subreddits/users and browse them as a combined feed, 
 - Lock on app start and after a chosen time in the background (immediately / 1 min / 5 min).
 - Optional "hide in recent apps": blank the app-switcher preview and block screenshots (`FLAG_SECURE`).
 - Optional per-profile lock: chosen profiles need unlocking before switching to them.
+- Keep screen on (built early, with the viewer fixes): Settings → Keep screen on (Off / While viewing / Everywhere) with an idle limit (`lib/screen_awake.dart`). With the lock on, the idle limit also locks the app, so a phone left awake doesn't stay open.
 - No lockout: if biometrics are removed, fall back to device credential or app PIN; turning the lock off requires unlocking first.
 - Tests: lock-timer logic, PIN hash/verify, settings flow.
 

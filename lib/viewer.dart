@@ -10,6 +10,7 @@ import 'download.dart';
 import 'filters.dart';
 import 'models.dart';
 import 'player.dart';
+import 'screen_awake.dart';
 import 'source_bar.dart';
 import 'sub_users.dart';
 
@@ -50,6 +51,7 @@ class _ViewerState extends State<Viewer> {
   @override
   void dispose() {
     viewerZoomed.removeListener(_zoomChanged);
+    ScreenAwake.viewerClosed();
     viewerChromeInset.value = 0;
     viewerZoomed.value = false;
     super.dispose();
@@ -67,6 +69,7 @@ class _ViewerState extends State<Viewer> {
     super.initState();
     viewerZoomed.value = false;
     viewerZoomed.addListener(_zoomChanged);
+    ScreenAwake.viewerOpened();
     markRead(widget.entries[widget.start].post.id);
     Interest.opened(widget.entries[widget.start].post);
     WidgetsBinding.instance.addPostFrameCallback((_) => _prefetch(widget.start));
