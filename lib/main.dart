@@ -29,6 +29,8 @@ void main() {
 
 Future<void> _main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Room for prefetched viewer originals (decoded up to 4096 px) next to the grid thumbnails. Default is 100 MB.
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 256 << 20;
   await _safe('crashlog', CrashLog.init);
   final sp = await SharedPreferences.getInstance();
   // If the last launch died before the first frame settled, start in safe mode: drop saved search state.
