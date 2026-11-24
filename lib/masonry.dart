@@ -1,4 +1,8 @@
 import 'dart:math' as math;
+import 'package:flutter/widgets.dart';
+
+/// Settings → Grid: true = tiles keep the media's shape (masonry), false = square tiles.
+final originalShapeGrid = ValueNotifier<bool>(true);
 
 /// Tile shapes are clamped to this range so one very tall or very wide image can't dominate the grid.
 const double minTileAspect = 0.4, maxTileAspect = 2.5;
@@ -83,4 +87,17 @@ double anchoredOffset(double offset, Map<String, double> oldTops, Map<String, do
   if (k == null) return offset;
   final o = offset + newTops[k]! - oldTops[k]!;
   return o < 0 ? 0 : o;
+}
+
+/// Lazy masonry sliver: [cols] side-by-side lists, each tile sized from its aspect ratio before anything loads.
+/// [tile] gets the index into [aspects].
+Widget masonrySliver(List<double> aspects, int cols, Widget Function(int index) tile) {
+  final m = Masonry(aspects, cols, 1); // column assignment doesn't depend on width
+  return SliverCrossAxisGroup(slivers: [
+    for (final col in m.columns)
+      SliverVariedExtentList(
+        itemExtentBuilder: (j, dims) => j < col.length ? dims.crossAxisExtent / aspects[col[j]] : 0.0,
+        delegate: SliverChildBuilderDelegate((_, j) => tile(col[j]), childCount: col.length),
+      ),
+  ]);
 }

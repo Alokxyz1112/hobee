@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hobee/masonry.dart';
 
@@ -72,5 +73,24 @@ void main() {
     expect(anchoredOffset(410, oldTops, newTops), 130);
     expect(anchoredOffset(410, oldTops, {}), 410);
     expect(anchoredOffset(10, {'a': 50.0}, {'a': 0.0}), 0);
+  });
+
+  testWidgets('masonry sliver reserves each tile size before anything loads', (t) async {
+    t.view.physicalSize = const Size(300, 2000);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    final asp = [0.5, 2.0, 1.0, 1.0, 1.0];
+    await t.pumpWidget(MaterialApp(
+      home: CustomScrollView(slivers: [
+        masonrySliver(asp, 3, (i) => SizedBox.expand(key: ValueKey('t$i'))),
+      ]),
+    ));
+    expect(t.takeException(), isNull);
+    Rect r(int i) => t.getRect(find.byKey(ValueKey('t$i')));
+    expect(r(0), const Rect.fromLTWH(0, 0, 100, 200));
+    expect(r(1), const Rect.fromLTWH(100, 0, 100, 50));
+    expect(r(2), const Rect.fromLTWH(200, 0, 100, 100));
+    expect(r(3), const Rect.fromLTWH(100, 50, 100, 100));
+    expect(r(4), const Rect.fromLTWH(200, 100, 100, 100));
   });
 }
