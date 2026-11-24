@@ -46,13 +46,13 @@ void main() {
       await d.delete(t);
     }
     pid = await FollowStore.createProfile('Test');
-    await FollowStore.add(pid, parseFollowList('r/aa r/bb r/cc u/dd').follows);
+    await FollowStore.add(pid, parseFollowList('r/aa r/bb r/cc u/dddd').follows);
     src = followingKey(pid);
     fake = FakeArchive({
       'r/aa': [100, 90, 80, 70, 60],
       'r/bb': [95, 85],
       'r/cc': [],
-      'u/dd': [99, 89, 79, 69],
+      'u/ddd': [99, 89, 79, 69],
     });
     Following.fetchPage = fake.page;
     Following.budget = 2;
@@ -74,7 +74,7 @@ void main() {
 
     // Paging back: only aa and dd have more; aa's oldest loaded post (80) is newer than dd's (79), so aa goes first.
     await Following.fetchMore(src, now: t0);
-    expect(fake.calls.skip(4), ['r/aa after=null before=80', 'u/dd after=null before=79']);
+    expect(fake.calls.skip(4), ['r/aa after=null before=80', 'u/ddd after=null before=79']);
     expect(await posts(), 5 + 2 + 4);
     // Everything is loaded now.
     expect(await Following.fetchMore(src, now: t0), -1);
@@ -92,7 +92,7 @@ void main() {
     Following.debugReset();
     await Following.fetchMore(src, fromStart: true, now: t0.add(const Duration(minutes: 31)));
     expect(fake.calls, contains('r/aa after=100 before=null'));
-    expect(fake.calls, contains('u/dd after=99 before=null'));
+    expect(fake.calls, contains('u/ddd after=99 before=null'));
     expect((await Db.load(src)).any((p) => p.id == 'aa_130'), isTrue);
   });
 
