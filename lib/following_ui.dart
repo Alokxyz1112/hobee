@@ -92,3 +92,30 @@ class FollowingStatusBar extends StatelessWidget {
               ),
       );
 }
+
+/// All · From subreddits · From users, under the Following status line.
+class FollowingKindChips extends StatelessWidget {
+  const FollowingKindChips({super.key});
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder(
+        valueListenable: followingKind,
+        builder: (_, k, _) => SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+          child: Row(children: [
+            for (final (i, label, icon) in const [(0, 'All', Icons.all_inclusive), (1, 'From subreddits', Icons.forum_outlined), (2, 'From users', Icons.person_outline)])
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  key: ValueKey('fol-kind-$i'),
+                  avatar: Icon(icon, size: 18),
+                  label: Text(label),
+                  selected: k == i,
+                  showCheckmark: false,
+                  onSelected: (_) => followingKind.value = i,
+                ),
+              ),
+          ]),
+        ),
+      );
+}

@@ -58,8 +58,9 @@ void main() {
     Following.budget = 2;
     Following.pageSize = 3;
     Following.refreshSize = 3;
+    Following.minGap = Duration.zero;
+    Following.maxGap = Duration.zero;
     Following.gap = Duration.zero;
-    Following.cooldown = Duration.zero;
     Following.debugReset();
   });
 
@@ -127,5 +128,46 @@ void main() {
     final empty = await FollowStore.createProfile('Empty');
     expect(await Following.fetchMore(followingKey(empty), now: t0), -1);
     expect(followingStatus.value, contains('no subreddits or users'));
+  });
+
+  test('adaptive gap: doubles after a slow-down, eases back after successes, within limits', () {
+    final (minG, maxG) = (Following.minGap, Following.maxGap);
+    Following.minGap = const Duration(seconds: 3);
+    Following.maxGap = const Duration(seconds: 15);
+    var g = const Duration(seconds: 3);
+    g = Following.nextGap(g, busy: true);
+    expect(g.inSeconds, 6);
+    g = Following.nextGap(Following.nextGap(g, busy: true), busy: true);
+    expect(g.inSeconds, 15, reason: 'capped');
+    for (var i = 0; i < 20; i++) {
+      g = Following.nextGap(g, busy: false);
+    }
+    expect(g.inSeconds, 3, reason: 'back to the minimum');
+    Following.minGap = minG;
+    Following.maxGap = maxG;
+  });
+
+  test('chips: posts in followed subreddits vs posts by followed users', () async {
+    Following.budget = 10;
+    await Following.fetchMore(src, now: t0);
+    final all = await Db.load(src);
+    followingKind.value = 1;
+    expect(Following.applyKind(all, src).every((p) => ['aa', 'bb', 'cc'].contains(p.subreddit)), isTrue);
+    followingKind.value = 2;
+    final users = Following.applyKind(all, src);
+    expect(users, isNotEmpty);
+    expect(users.every((p) => p.author == 'ddd'), isTrue);
+    followingKind.value = 0;
+    expect(Following.applyKind(all, src).length, all.length);
+  });
+
+  test('the refresher runs the whole round on its own', () async {
+    Following.budget = 1;
+    FollowingRefresher.start(src);
+    for (var i = 0; i < 50 && !(followingStatus.value ?? '').startsWith('All 4 checked'); i++) {
+      await Future.delayed(const Duration(milliseconds: 20));
+    }
+    expect(followingStatus.value, startsWith('All 4 checked'));
+    expect(FollowingRefresher.running(src), isFalse);
   });
 }

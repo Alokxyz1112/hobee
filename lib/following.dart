@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'archive.dart';
@@ -17,8 +18,11 @@ bool isFollowing(String source) => source.startsWith('fol:');
 String followingKey(int profile) => 'fol:$profile';
 int? followingProfile(String source) => isFollowing(source) ? int.tryParse(source.substring(4)) : null;
 
-/// Progress line for the status bar, e.g. "Checked 40 of 325 · 2 failed".
+/// Progress line for the status bar, e.g. "Checked 40 of 325 · ~9 min left".
 final followingStatus = ValueNotifier<String?>(null);
+
+/// Following feed chips: 0 all, 1 posts in followed subreddits, 2 posts by followed users.
+final followingKind = ValueNotifier<int>(0);
 
 class FollowState {
   int at; // last refresh, ms since epoch (0 = never)
@@ -45,11 +49,53 @@ class Following {
   static int pageSize = 100; // Arctic Shift maximum; fewer rows back means the entry has no older posts
   /// Refreshing an entry that already has posts only asks for this many newer ones (cheaper for the archive).
   static int refreshSize = 25;
-  /// Arctic Shift answers "slow down" (HTTP 422) at about one request a second, so the feed goes gentler:
-  /// at least [gap] between its requests, and a [cooldown] pause after a slow-down before going on.
+  /// Arctic Shift answers "slow down" (HTTP 422) at about one request a second, so the feed adapts: it starts
+  /// at [minGap] between its requests, doubles the gap (up to [maxGap]) after every slow-down and eases back
+  /// towards [minGap] after each success. It runs at whatever pace the archive allows from this network.
+  static Duration minGap = const Duration(seconds: 3);
+  static Duration maxGap = const Duration(seconds: 15);
   static Duration gap = const Duration(seconds: 3);
-  static Duration cooldown = const Duration(seconds: 30);
   static DateTime? _last;
+
+  /// Next gap after a request: doubled after a slow-down, 20 % shorter after a success, within the limits.
+  static Duration nextGap(Duration g, {required bool busy}) {
+    final ms = busy ? g.inMilliseconds * 2 : (g.inMilliseconds * 0.8).round();
+    return Duration(milliseconds: ms.clamp(minGap.inMilliseconds, maxGap.inMilliseconds));
+  }
+
+  /// Bumps when posts were saved (the grid reloads from the database).
+  static final version = ValueNotifier<int>(0);
+
+  // One fetch at a time: the refresher, the grid and the background task share the archive's rate limit.
+  static Future<void> _lock = Future<void>.value();
+  static Future<T> _locked<T>(Future<T> Function() f) {
+    final prev = _lock;
+    final done = Completer<void>();
+    _lock = done.future;
+    return prev.then((_) => f()).whenComplete(done.complete);
+  }
+
+  // Subreddits / users of each profile, lower-case, for the Following chips.
+  static final _sets = <int, (Set<String>, Set<String>)>{};
+
+  static Future<void> loadSets(int pid) async {
+    final fs = await FollowStore.follows(pid);
+    _sets[pid] = (
+      {for (final f in fs) if (f.kind == FollowKind.sub) f.name.toLowerCase()},
+      {for (final f in fs) if (f.kind == FollowKind.user) f.name.toLowerCase()},
+    );
+  }
+
+  /// Applies the Following chips: posts made in a followed subreddit, or by a followed user.
+  static List<Post> applyKind(List<Post> posts, String source) {
+    final k = followingKind.value;
+    final sets = _sets[followingProfile(source) ?? -1];
+    if (k == 0 || sets == null) return posts;
+    final (subs, users) = sets;
+    return k == 1
+        ? posts.where((p) => subs.contains(p.subreddit.toLowerCase())).toList()
+        : posts.where((p) => users.contains(p.author.toLowerCase())).toList();
+  }
 
   /// One page of an entry from Arctic Shift. Test seam.
   static Future<List<Map<String, dynamic>>> Function(Follow f, {int? after, int? before, int limit}) fetchPage = _arctic;
@@ -64,7 +110,12 @@ class Following {
       if (!wait.isNegative) await Future.delayed(wait);
     }
     try {
-      return await fetchPage(f, after: after, before: before, limit: limit);
+      final r = await fetchPage(f, after: after, before: before, limit: limit);
+      gap = nextGap(gap, busy: false);
+      return r;
+    } catch (e) {
+      if (_busy(e)) gap = nextGap(gap, busy: true);
+      rethrow;
     } finally {
       _last = DateTime.now();
     }
@@ -81,8 +132,14 @@ class Following {
   static Future<FollowState> _state(String source, Follow f) async => FollowState.decode((await Db.cursor(_unitKey(source, f))).$1);
   static Future<void> _save(String source, Follow f, FollowState s) => Db.setCursor(_unitKey(source, f), s.encode());
 
+  /// True once a refresh round was started for [source] this session.
+  static bool started(String source) => _round.containsKey(source);
+
   /// Next batch for [source]; returns new post count, -1 when every entry is exhausted.
-  static Future<int> fetchMore(String source, {bool fromStart = false, DateTime? now}) async {
+  static Future<int> fetchMore(String source, {bool fromStart = false, DateTime? now}) =>
+      _locked(() => _fetchMore(source, fromStart: fromStart, now: now));
+
+  static Future<int> _fetchMore(String source, {bool fromStart = false, DateTime? now}) async {
     final pid = followingProfile(source);
     if (pid == null) return -1;
     final follows = await FollowStore.follows(pid);
@@ -92,6 +149,10 @@ class Following {
       return -1;
     }
     final t = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    _sets[pid] = (
+      {for (final f in follows) if (f.kind == FollowKind.sub) f.name.toLowerCase()},
+      {for (final f in follows) if (f.kind == FollowKind.user) f.name.toLowerCase()},
+    );
     final states = {for (final f in follows) f: await _state(source, f)};
 
     // Start a refresh round on pull-to-refresh or the first call this session.
@@ -116,12 +177,14 @@ class Following {
       }
       await Db.savePosts(source, posts);
       added += posts.length;
+      if (posts.isNotEmpty) version.value++;
     }
 
     void status() {
       _checked[source] = (checked, total, failed);
+      final mins = (queue.length * (gap.inMilliseconds + 1500) / 60000).ceil();
       followingStatus.value = queue.isNotEmpty
-          ? 'Checked $checked of $total${failed > 0 ? ' · $failed failed' : ''} · Arctic Shift'
+          ? 'Checked $checked of $total${failed > 0 ? ' · $failed failed' : ''} · ~$mins min left'
           : 'All $total checked${failed > 0 ? ' · $failed failed' : ''} · scroll for older posts';
     }
 
@@ -151,8 +214,7 @@ class Following {
         // First failure: try this entry again at the end of the round (after a pause if the archive said
         // to slow down). Second failure: count it and move on; the next round retries it.
         if (_retried.putIfAbsent(source, () => {}).add(f.key)) {
-          queue.add(f);
-          if (_busy(e)) await Future.delayed(cooldown);
+          queue.add(f); // the gap already grew if the archive said to slow down
         } else {
           failed++;
           checked++;
@@ -174,8 +236,8 @@ class Following {
           if (ts.isNotEmpty) s.oldest = ts.reduce((a, b) => a < b ? a : b);
           s.done = rows.length < pageSize || ts.isEmpty;
           await _save(source, f, s);
-        } catch (e) {
-          if (_busy(e)) await Future.delayed(cooldown); // try again on a later call
+        } catch (_) {
+          // try again on a later call (the gap already grew if it was a slow-down)
         }
       }
     }
@@ -200,6 +262,43 @@ class Following {
     _checked.clear();
     _retried.clear();
     _last = null;
+    gap = minGap;
+    followingKind.value = 0;
+    FollowingRefresher.stop();
     followingStatus.value = null;
+  }
+}
+
+/// Runs a profile's refresh round to the end, independent of any screen: switching tabs or opening the
+/// viewer doesn't stop it. One source at a time; starting another one stops the previous loop.
+class FollowingRefresher {
+  static String? _source;
+  static int _gen = 0;
+
+  static bool running(String source) => _source == source;
+
+  static void start(String source, {bool fromStart = false}) {
+    if (_source == source && !fromStart) return;
+    final gen = ++_gen;
+    _source = source;
+    () async {
+      var first = true;
+      try {
+        while (gen == _gen) {
+          final n = await Following.fetchMore(source, fromStart: first && fromStart);
+          first = false;
+          if (n < 0 || !Following.refreshing(source)) break;
+        }
+      } catch (_) {
+        // a failed batch ends this loop; the next refresh or scroll starts it again
+      } finally {
+        if (gen == _gen) _source = null;
+      }
+    }();
+  }
+
+  static void stop() {
+    _gen++;
+    _source = null;
   }
 }

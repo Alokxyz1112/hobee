@@ -44,7 +44,16 @@ class Api {
   static Future<int> fetchMore(String source, {bool fromStart = false}) async {
     if (isSubSearch(source)) return SubSearch.fetchMore(source, fromStart: fromStart);
     if (isDeep(source)) return Archive.fetchMore(source, fromStart: fromStart);
-    if (isFollowing(source)) return Following.fetchMore(source, fromStart: fromStart);
+    if (isFollowing(source)) {
+      // Refresh rounds run in FollowingRefresher (not tied to the grid's timeout); the grid reloads on
+      // Following.version. Scrolling pages back only while no round is running.
+      if (fromStart || !Following.started(source) || Following.refreshing(source)) {
+        FollowingRefresher.start(source, fromStart: fromStart);
+        return 0;
+      }
+      if (FollowingRefresher.running(source)) return 0;
+      return Following.fetchMore(source);
+    }
     final (after, done) = await Db.cursor(source);
     if (done && !fromStart) return -1;
     final j = await get(pathFor(source), {

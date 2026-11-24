@@ -174,7 +174,7 @@ class _DeepSearchScreenState extends State<DeepSearchScreen> {
           key: ValueKey(src),
           title: 'Following · ${s.data?.where((p) => p.id == followingProfile(src)).map((p) => p.name).firstOrNull ?? ''}',
           sources: false,
-          header: const FollowingStatusBar(),
+          header: const Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [FollowingStatusBar(), FollowingKindChips()]),
           leading: IconButton(icon: const Icon(Icons.arrow_back), tooltip: 'Back', onPressed: _reset),
         ),
       );

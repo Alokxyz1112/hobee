@@ -1,3 +1,4 @@
+import 'following.dart';
 import 'keyword_ui.dart';
 import 'dart:async';
 import 'dart:math';
@@ -40,6 +41,7 @@ class _FeedScreenState extends State<FeedScreen> {
   List<Post> _filter(List<Post> all) {
     var shown = filterAndCount(all);
     var cp = <String, List<Post>>{};
+    if (isFollowing(effectiveSource())) shown = Following.applyKind(shown, effectiveSource());
     if (dupesOn && !textish) (shown, cp) = Dedupe.collapse(shown);
     copies = cp;
     return shown;
@@ -75,6 +77,8 @@ class _FeedScreenState extends State<FeedScreen> {
     subSort.addListener(_load);
     viewFilters.addListener(_applySoon);
     Dedupe.version.addListener(_applySoon);
+    followingKind.addListener(_applySoon);
+    Following.version.addListener(_folSaved);
     postLayout.addListener(_apply);
     sc.addListener(() {
       if (sc.position.pixels > sc.position.maxScrollExtent - 800) _more();
@@ -89,8 +93,20 @@ class _FeedScreenState extends State<FeedScreen> {
     viewFilters.removeListener(_applySoon);
     _applyT?.cancel();
     Dedupe.version.removeListener(_applySoon);
+    followingKind.removeListener(_applySoon);
+    Following.version.removeListener(_folSaved);
+    _folT?.cancel();
     postLayout.removeListener(_apply);
     super.dispose();
+  }
+
+  Timer? _folT;
+  void _folSaved() {
+    if (!isFollowing(effectiveSource())) return;
+    _folT ??= Timer(const Duration(milliseconds: 1500), () {
+      _folT = null;
+      if (mounted) _load();
+    });
   }
 
   Future<void> _load() async {
