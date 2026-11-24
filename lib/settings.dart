@@ -1,3 +1,4 @@
+import 'masonry.dart';
 import 'filters.dart';
 import 'viewed.dart';
 import 'crash_log.dart';
@@ -215,6 +216,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: const Text('Off: videos play with sound. The mute button in the player remembers your pick.'),
             value: on,
             onChanged: (v) => VideoPrefs.startMuted.value = v,
+          ),
+        ),
+        ValueListenableBuilder(
+          valueListenable: originalShapeGrid,
+          builder: (_, on, _) => SwitchListTile(
+            title: const Text('Grid: original shape'),
+            subtitle: const Text('Tiles keep the shape of each picture. Off: square tiles.'),
+            value: on,
+            onChanged: (v) => originalShapeGrid.value = v,
           ),
         ),
         ValueListenableBuilder(
