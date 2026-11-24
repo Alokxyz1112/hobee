@@ -45,6 +45,7 @@ class _ViewerState extends State<Viewer> {
     super.initState();
     markRead(widget.entries[widget.start].post.id);
     Interest.opened(widget.entries[widget.start].post);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _prefetch(widget.start));
   }
 
   Future<void> _download({bool all = false}) async {
@@ -65,8 +66,25 @@ class _ViewerState extends State<Viewer> {
     m.showSnackBar(SnackBar(content: Text('Saved $ok/${items.length} to Pictures')));
   }
 
-  Widget _photo(String url, MediaItem it) =>
-      PhotoFallback(key: ValueKey('${it.url}|${it.thumb}'), urls: [url, it.full, it.url, ?it.preview, it.thumb]);
+  Widget _photo(String url, MediaItem it) => PhotoFallback(
+      key: ValueKey('${it.url}|${it.thumb}'),
+      urls: [url, it.full, it.url, ?it.preview, it.thumb],
+      placeholder: it.thumb.startsWith('http') ? gridThumbProvider(it.thumb) : null);
+
+  /// Start decoding the next images' originals so swiping to them is instant. Same provider and size cap as
+  /// the viewer, so the decoded image is reused from the cache. Errors are ignored here; the page retries.
+  void _prefetch(int from) {
+    if (!mounted) return;
+    final maxPx = viewerMaxPx(context);
+    final deep = isDeep(currentSource.value);
+    for (final k in prefetchTargets(widget.entries, from)) {
+      final e = widget.entries[k];
+      final url = deep ? MediaCheck.resolve(e.post, e.item) : Future<String?>.value(e.item.full);
+      url.then((u) {
+        if (mounted && u != null && u.startsWith('http')) precacheImage(viewerProvider(u, maxPx), context, onError: (_, _) {});
+      }, onError: (_) {});
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -97,7 +115,7 @@ class _ViewerState extends State<Viewer> {
           PageView.builder(
             controller: pc,
             itemCount: widget.entries.length,
-            onPageChanged: (i) { markRead(widget.entries[i].post.id); if (widget.entries[i].post.id != widget.entries[cur].post.id) Interest.opened(widget.entries[i].post); setState(() => cur = i); },
+            onPageChanged: (i) { markRead(widget.entries[i].post.id); if (widget.entries[i].post.id != widget.entries[cur].post.id) Interest.opened(widget.entries[i].post); setState(() => cur = i); _prefetch(i); },
             itemBuilder: (_, i) {
               final it = widget.entries[i].item;
               if (it.type == MediaType.video) return VideoPage(item: it, active: i == cur);
@@ -138,17 +156,42 @@ class _ViewerState extends State<Viewer> {
   }
 }
 
-/// Viewer photo: tries each URL in order (original, preview, thumbnail) and shows the first that loads.
+/// Decode cap for viewer images: some originals are 4000-9000 px wide and fail to decode on phones.
+int viewerMaxPx(BuildContext context) {
+  final mq = MediaQuery.of(context);
+  return ((mq.size.longestSide * mq.devicePixelRatio) * 1.5).clamp(1024, 4096).round();
+}
+
+/// Provider the viewer uses for a full-size URL. Prefetch must use the same one so the cache is hit.
+ImageProvider viewerProvider(String u, int maxPx) {
+  // Reddit JPEGs: clean up the compression first (blocks, bleeding reds). Same size cap as below.
+  if (cleanJpegs.value) return CleanNetworkImage(u, maxPx, headers: const {'User-Agent': viewerUserAgent});
+  return ResizeImage(NetworkImage(u, headers: const {'User-Agent': viewerUserAgent}), width: maxPx, policy: ResizeImagePolicy.fit, allowUpscaling: false);
+}
+
+/// The grid tile's provider for [thumb] (same as Image.network(thumb, cacheWidth: 360)), so the viewer gets a cache hit.
+ImageProvider gridThumbProvider(String thumb) => ResizeImage(NetworkImage(thumb), width: 360);
+
+/// Entries worth prefetching after [cur]: the next [ahead] positions, images only.
+List<int> prefetchTargets(List<Entry> entries, int cur, {int ahead = 2}) => [
+      for (var k = cur + 1; k < entries.length && k <= cur + ahead; k++)
+        if (entries[k].item.type == MediaType.image) k
+    ];
+
+/// Viewer photo: shows [placeholder] (the cached grid thumbnail) at once, then tries each full-size URL in
+/// order (original, preview, thumbnail) and fades in the first that loads.
 ///
 /// 1.3.5 bug: PhotoView's errorBuilder runs on every rebuild of a failed page, and each run scheduled
 /// another "next URL" step. One failure could skip several candidates (including the working preview),
-/// so the chain ran out and only the retry icon was left. Now a failure only advances when it belongs
-/// to the URL currently shown, decodes are capped to screen size, and retry evicts the image cache.
+/// so the chain ran out and only the retry icon was left. Now each URL has one stream listener and a failure
+/// only advances when it belongs to the URL currently shown, decodes are capped to screen size, and retry evicts the image cache.
 class PhotoFallback extends StatefulWidget {
   final List<String> urls;
+  /// Shown at once (usually the cached grid thumbnail) until a full-size URL has decoded.
+  final ImageProvider? placeholder;
   /// Test seam: builds the provider for a URL.
   final ImageProvider Function(String url, int maxPx)? providerFor;
-  const PhotoFallback({super.key, required this.urls, this.providerFor});
+  const PhotoFallback({super.key, required this.urls, this.placeholder, this.providerFor});
   @override
   State<PhotoFallback> createState() => PhotoFallbackState();
 }
@@ -157,6 +200,11 @@ class PhotoFallbackState extends State<PhotoFallback> {
   int i = 0;
   final failures = <String>[]; // "url → reason", newest last
   int _gen = 0; // bumps on retry so a fresh provider/key is used
+  /// True once the current full-size URL has decoded.
+  bool loaded = false;
+  String? _watchKey;
+  ImageStream? _stream;
+  ImageStreamListener? _listener;
 
   List<String> get urls => withRedditOriginals(widget.urls);
 
@@ -167,13 +215,45 @@ class PhotoFallbackState extends State<PhotoFallback> {
     if (oldWidget.urls.join('|') != widget.urls.join('|')) i = 0;
   }
 
-  ImageProvider _provider(String u, int maxPx) {
-    if (widget.providerFor != null) return widget.providerFor!(u, maxPx);
-    // Reddit JPEGs: clean up the compression first (blocks, bleeding reds). Same size cap as below.
-    if (cleanJpegs.value) return CleanNetworkImage(u, maxPx, headers: const {'User-Agent': viewerUserAgent});
-    // Cap decode size: some originals are 4000-9000 px wide and fail to decode on phones.
-    return ResizeImage(NetworkImage(u, headers: const {'User-Agent': viewerUserAgent}), width: maxPx, policy: ResizeImagePolicy.fit, allowUpscaling: false);
+  @override
+  void dispose() {
+    _unwatch();
+    super.dispose();
   }
+
+  void _unwatch() {
+    if (_listener != null) _stream?.removeListener(_listener!);
+    _stream = null;
+    _listener = null;
+    _watchKey = null;
+  }
+
+  /// Follows the current URL's load: marks [loaded] on the first frame, advances the chain on error.
+  /// One listener per URL, so rebuilds can't report the same failure twice (the 1.3.5 bug).
+  void _watch(ImageProvider p, String u, String key) {
+    if (_watchKey == key) return;
+    _unwatch();
+    _watchKey = key;
+    loaded = false;
+    final s = p.resolve(createLocalImageConfiguration(context));
+    final l = ImageStreamListener((_, sync) {
+      if (!mounted || _watchKey != key || loaded) return;
+      if (sync) {
+        loaded = true; // already decoded (prefetched): show it in this build
+      } else {
+        setState(() => loaded = true);
+      }
+    }, onError: (err, _) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_watchKey == key) _failed(u, err);
+      });
+    });
+    _stream = s;
+    _listener = l;
+    s.addListener(l);
+  }
+
+  ImageProvider _provider(String u, int maxPx) => widget.providerFor?.call(u, maxPx) ?? viewerProvider(u, maxPx);
 
   void _failed(String u, Object err) {
     final us = urls;
@@ -197,10 +277,12 @@ class PhotoFallbackState extends State<PhotoFallback> {
       PaintingBinding.instance.imageCache.clear();
     }
     PaintingBinding.instance.imageCache.clearLiveImages();
+    _unwatch();
     setState(() {
       i = 0;
       failures.clear();
       _gen++;
+      loaded = false;
     });
   }
 
@@ -219,41 +301,81 @@ class PhotoFallbackState extends State<PhotoFallback> {
     );
   }
 
+  Widget _errorView(List<String> us) {
+    final removed = failures.isNotEmpty && failures.every((f) => f.endsWith('HTTP 404') || f.endsWith('HTTP 410'));
+    return Center(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), tooltip: 'Retry', onPressed: retry),
+        const SizedBox(height: 4),
+        Text(us.isEmpty ? 'No image URL for this post' : removed ? 'Removed' : 'Couldn\'t load image (${failures.isNotEmpty ? failures.last.split(' → ').last : 'error'})',
+            style: const TextStyle(color: Colors.white54, fontSize: 12)),
+        const Text('Long-press for details', style: TextStyle(color: Colors.white30, fontSize: 11)),
+      ]),
+    );
+  }
+
+  Widget _placeholder({Widget Function()? onError}) => Image(
+        image: widget.placeholder!,
+        fit: BoxFit.contain,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) => onError?.call() ?? const SizedBox.shrink(),
+      );
+
   @override
   Widget build(BuildContext context) {
     final us = urls;
+    final ph = widget.placeholder;
     if (i >= us.length) {
-      final removed = failures.isNotEmpty && failures.every((f) => f.endsWith('HTTP 404') || f.endsWith('HTTP 410'));
+      _unwatch();
+      // Every full-size URL failed. With a thumbnail, stay on it quietly (small retry in the corner);
+      // only show the error state when even that can't load.
       return GestureDetector(
         onLongPress: _showDebug,
-        child: Center(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            IconButton(icon: const Icon(Icons.refresh, color: Colors.white70), tooltip: 'Retry', onPressed: retry),
-            const SizedBox(height: 4),
-            Text(us.isEmpty ? 'No image URL for this post' : removed ? 'Removed' : 'Couldn\'t load image (${failures.isNotEmpty ? failures.last.split(' → ').last : 'error'})',
-                style: const TextStyle(color: Colors.white54, fontSize: 12)),
-            const Text('Long-press for details', style: TextStyle(color: Colors.white30, fontSize: 11)),
-          ]),
-        ),
+        child: ph == null
+            ? _errorView(us)
+            : Stack(fit: StackFit.expand, children: [
+                _placeholder(onError: () => _errorView(us)),
+                Positioned(
+                  right: 8,
+                  bottom: 120,
+                  child: IconButton(
+                    key: const Key('quiet-retry'),
+                    icon: const Icon(Icons.refresh, color: Colors.white54, size: 20),
+                    tooltip: 'Retry full quality',
+                    onPressed: retry,
+                  ),
+                ),
+              ]),
       );
     }
     final u = us[i];
-    final mq = MediaQuery.of(context);
-    final maxPx = ((mq.size.longestSide * mq.devicePixelRatio) * 1.5).clamp(1024, 4096).round();
+    final maxPx = viewerMaxPx(context);
+    final p = _provider(u, maxPx);
+    _watch(p, u, '$u#$_gen#$maxPx');
     return GestureDetector(
       onLongPress: _showDebug,
-      child: PhotoView(
-        key: ValueKey('$u#$_gen'),
-        imageProvider: _provider(u, maxPx),
-        minScale: PhotoViewComputedScale.contained,
-        maxScale: PhotoViewComputedScale.covered * 4,
-        backgroundDecoration: const BoxDecoration(color: Colors.black),
-        loadingBuilder: (_, _) => const Center(child: CircularProgressIndicator()),
-        errorBuilder: (_, err, _) {
-          WidgetsBinding.instance.addPostFrameCallback((_) => _failed(u, err));
-          return const Center(child: CircularProgressIndicator());
-        },
-      ),
+      child: Stack(fit: StackFit.expand, children: [
+        // The thumbnail stays underneath; the full image fades in over it.
+        if (ph != null) _placeholder(),
+        AnimatedOpacity(
+          key: const Key('full-fade'),
+          opacity: loaded ? 1 : 0,
+          duration: const Duration(milliseconds: 200),
+          child: PhotoView(
+            key: ValueKey('$u#$_gen'),
+            imageProvider: p,
+            minScale: PhotoViewComputedScale.contained,
+            maxScale: PhotoViewComputedScale.covered * 4,
+            backgroundDecoration: const BoxDecoration(color: Colors.black),
+            loadingBuilder: (_, _) => const SizedBox.shrink(),
+            errorBuilder: (_, _, _) => const SizedBox.shrink(), // failures are handled by _watch
+          ),
+        ),
+        if (!loaded)
+          ph == null
+              ? const Center(child: CircularProgressIndicator())
+              : const Align(alignment: Alignment.bottomCenter, child: LinearProgressIndicator(minHeight: 2)),
+      ]),
     );
   }
 }
