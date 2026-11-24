@@ -102,7 +102,7 @@ class HobeeApp extends StatelessWidget {
   Widget build(BuildContext context) => ValueListenableBuilder(
         valueListenable: themeMode,
         builder: (_, m, _) => MaterialApp(
-          title: 'Hobee',
+          title: 'Hobees',
           scaffoldMessengerKey: messengerKey,
           debugShowCheckedModeBanner: false,
           theme: _theme(Brightness.light),
@@ -188,7 +188,7 @@ class LoginPrompt extends StatelessWidget {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Image.asset('assets/icon/logo.png', width: 88, height: 88),
               const SizedBox(height: 12),
-              Text('Hobee', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
+              Text('Hobees', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               const Text('Your Reddit media, ad-free.', textAlign: TextAlign.center),
               const SizedBox(height: 24),

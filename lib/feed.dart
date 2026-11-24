@@ -160,7 +160,7 @@ class _FeedScreenState extends State<FeedScreen> {
       backgroundColor: Colors.transparent,
       appBar: AppBar(flexibleSpace: const GlassBar(), 
         leading: widget.leading,
-        title: TitleButton(widget.title ?? 'Hobee', onTap: widget.onTitleTap),
+        title: TitleButton(widget.title ?? 'Hobees', onTap: widget.onTitleTap),
         actions: [
           ...widget.actions,
           IconButton(
