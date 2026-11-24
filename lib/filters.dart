@@ -1,3 +1,4 @@
+import 'dedupe.dart';
 import 'masonry.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'relevance.dart';
@@ -266,6 +267,8 @@ Future<void> loadFilterPrefs() async {
   hideAdult.addListener(() => sp.setBool('hideAdult', hideAdult.value));
   hideGone.addListener(() => sp.setBool('hideGone', hideGone.value));
   hideDupes.addListener(() => sp.setBool('hideDupes', hideDupes.value));
+  videoFrameHashing.value = sp.getBool('videoFrameHashing') ?? false;
+  videoFrameHashing.addListener(() => sp.setBool('videoFrameHashing', videoFrameHashing.value));
   hideDupesDeep.addListener(() => sp.setBool('hideDupesDeep', hideDupesDeep.value));
   readIds.addAll(sp.getStringList('readIds') ?? []);
   postLayout.value = PostLayout.values[(sp.getInt('postLayout') ?? 3).clamp(0, 3)];

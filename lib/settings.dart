@@ -1,3 +1,4 @@
+import 'dedupe.dart';
 import 'masonry.dart';
 import 'filters.dart';
 import 'viewed.dart';
@@ -290,6 +291,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: const Text('Shows one tile for reposts of the same picture.'),
             value: on,
             onChanged: (v) => hideDupesDeep.value = v,
+          ),
+        ),
+        ValueListenableBuilder(
+          valueListenable: videoFrameHashing,
+          builder: (_, on, _) => SwitchListTile(
+            title: const Text('Compare video frames'),
+            subtitle: const Text('Finds re-uploaded videos by checking 4 frames of each video you scroll past. Uses extra data; off by default.'),
+            value: on,
+            onChanged: (v) => videoFrameHashing.value = v,
           ),
         ),
         ValueListenableBuilder(

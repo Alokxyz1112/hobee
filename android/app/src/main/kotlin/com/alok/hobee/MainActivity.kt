@@ -1,7 +1,9 @@
 package com.alok.hobee
 
 import android.content.ContentValues
+import android.graphics.Bitmap
 import android.media.MediaCodec
+import android.media.MediaMetadataRetriever
 import android.media.MediaExtractor
 import android.media.MediaMuxer
 import android.media.MediaScannerConnection
@@ -11,6 +13,7 @@ import android.provider.MediaStore
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
@@ -26,6 +29,11 @@ class MainActivity : FlutterActivity() {
                         "mux" -> {
                             mux(call.argument<String>("video")!!, call.argument<String>("audio")!!, call.argument<String>("out")!!)
                             runOnUiThread { result.success(true) }
+                        }
+                        "frames" -> {
+                            val r = frames(call.argument<String>("url")!!, call.argument<String>("ua") ?: "",
+                                call.argument<List<Int>>("spots") ?: listOf(10, 40, 70, 90))
+                            runOnUiThread { result.success(r) }
                         }
                         "save" -> {
                             val uri = save(call.argument<String>("path")!!, call.argument<String>("name")!!,
@@ -115,6 +123,38 @@ class MainActivity : FlutterActivity() {
             File(path).copyTo(f, overwrite = true)
             MediaScannerConnection.scanFile(this, arrayOf(f.absolutePath), arrayOf(mime), null)
             return f.absolutePath
+        }
+    }
+
+    /**
+     * Small JPEG frames at [spots] percent of a remote video, for duplicate hashing. Reads only what the
+     * retriever needs (range requests). Returns durationMs (0 if unknown) and one byte array per spot
+     * (empty when that frame could not be read).
+     */
+    private fun frames(url: String, ua: String, spots: List<Int>): Map<String, Any> {
+        val r = MediaMetadataRetriever()
+        try {
+            r.setDataSource(url, hashMapOf("User-Agent" to ua))
+            val ms = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            val out = ArrayList<ByteArray>()
+            if (ms > 0) {
+                for (p in spots) {
+                    val us = ms * 1000L * p / 100L
+                    val full = r.getFrameAtTime(us, MediaMetadataRetriever.OPTION_CLOSEST)
+                    if (full == null) { out.add(ByteArray(0)); continue }
+                    val w = 64
+                    val h = maxOf(1, full.height * w / maxOf(1, full.width))
+                    val small = Bitmap.createScaledBitmap(full, w, h, true)
+                    val bytes = ByteArrayOutputStream()
+                    small.compress(Bitmap.CompressFormat.JPEG, 90, bytes)
+                    if (small !== full) small.recycle()
+                    full.recycle()
+                    out.add(bytes.toByteArray())
+                }
+            }
+            return mapOf("durationMs" to ms, "frames" to out)
+        } finally {
+            try { r.release() } catch (e: Exception) { }
         }
     }
 }
