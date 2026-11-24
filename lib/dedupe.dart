@@ -8,12 +8,23 @@ import 'models.dart';
 
 /// Duplicate collapsing for reposts / crossposts of the same image or gallery.
 ///
-/// 1. Exact keys: crosspost_parent, i.redd.it / i.imgur filename, gallery media_id set, preview source path.
+/// 1. Exact keys: crosspost_parent, i.redd.it / i.imgur filename, gallery media_id set, preview source path,
+///    video file ids (v.redd.it, RedGIFs, Imgur gifv/mp4).
 /// 2. Perceptual: 64-bit dHash of a small thumbnail (algorithm as in JohannesBuchner/imagehash `dhash`),
 ///    computed in an isolate, cached in SQLite, grouped at Hamming distance <= [maxDistance].
 ///    Galleries match when most of their hashed images match.
 class Dedupe {
   static const maxDistance = 6;
+  /// Single videos of the same length (within [videoSeconds]) match at this looser thumbnail distance.
+  static const videoDistance = 12;
+  static const videoSeconds = 1.0;
+
+  /// One video (or animated) item; compared only with other single videos.
+  static bool isSingleVideo(Post p) => p.media.length == 1 && p.media.first.type != MediaType.image;
+
+  /// Test seam: put a known thumbnail hash in the memory cache.
+  @visibleForTesting
+  static void debugSetHash(String url, int? hash) => _mem[url] = hash;
   static const _maxPerPost = 4; // hash at most this many images per gallery
   static const _bands = maxDistance + 1; // 7 bands of 9 bits (last one 10)
   static const _bandBits = 9;
@@ -75,14 +86,18 @@ class Dedupe {
     // maxDistance + 1 bands; two hashes within maxDistance bits must agree exactly on at least
     // one band (pigeonhole), so only posts sharing a band bucket are compared. Same result,
     // roughly linear instead of quadratic on big profiles.
+    final video = [for (final p in posts) isSingleVideo(p)];
+    final dur = [for (var i = 0; i < n; i++) video[i] ? posts[i].media.first.duration : null];
     final buckets = <int, List<int>>{};
     for (var i = 0; i < n; i++) {
       final hs = hashes[i];
       if (hs.isEmpty) continue;
-      final kind = hs.length == 1 ? 0 : 1; // single vs gallery never match
+      if (video[i] && dur[i] != null) continue; // compared by duration below
+      // Kinds never match each other: single picture 0, gallery 1, single video 2.
+      final kind = video[i] ? 2 : (hs.length == 1 ? 0 : 1);
       for (final h in hs) {
         for (var b = 0; b < _bands; b++) {
-          final key = (((h >> (b * _bandBits)) & (b == _bands - 1 ? _bandMask : _bandMask9)) << 8) | (b << 1) | kind;
+          final key = (((h >> (b * _bandBits)) & (b == _bands - 1 ? _bandMask : _bandMask9)) << 8) | (b << 2) | kind;
           (buckets[key] ??= <int>[]).add(i);
         }
       }
@@ -97,6 +112,24 @@ class Dedupe {
           final pair = i < j ? i * n + j : j * n + i;
           if (!tried.add(pair)) continue;
           if (_similar(hashes[i], hashes[j])) union(i, j);
+        }
+      }
+    }
+
+    // 3) single videos with a known duration: re-uploads get a different poster frame, so the thumbnail
+    //    may differ more than a picture's would. Same length (±[videoSeconds]) + loose distance ([videoDistance]).
+    //    Bucketed by rounded seconds; lengths within 1 s are at most one bucket apart.
+    final byDur = <int, List<int>>{};
+    for (var i = 0; i < n; i++) {
+      if (video[i] && dur[i] != null && hashes[i].isNotEmpty) (byDur[dur[i]!.round()] ??= <int>[]).add(i);
+    }
+    for (final MapEntry(key: s, value: list) in byDur.entries) {
+      final next = byDur[s + 1] ?? const <int>[];
+      for (var a = 0; a < list.length; a++) {
+        for (final j in [...list.skip(a + 1), ...next]) {
+          final i = list[a];
+          if (find(i) == find(j)) continue;
+          if ((dur[i]! - dur[j]!).abs() <= videoSeconds && hamming(hashes[i][0], hashes[j][0]) <= videoDistance) union(i, j);
         }
       }
     }
