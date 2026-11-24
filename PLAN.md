@@ -75,7 +75,10 @@ Goal: paste or import your subreddits/users and browse them as a combined feed, 
 - Optional per-profile lock: chosen profiles need unlocking before switching to them.
 - Keep screen on (built early, with the viewer fixes): Settings → Keep screen on (Off / While viewing / Everywhere) with an idle limit (`lib/screen_awake.dart`). With the lock on, the idle limit also locks the app, so a phone left awake doesn't stay open.
 - No lockout: if biometrics are removed, fall back to device credential or app PIN; turning the lock off requires unlocking first.
-- Tests: lock-timer logic, PIN hash/verify, settings flow.
+- **Trusted networks (Wi-Fi safety):** Settings → Network → Trusted networks. "Add this network" saves the Wi-Fi name together with the router's hardware ID (BSSID), so a look-alike network with the same name isn't trusted. Home, family, etc. Reading the Wi-Fi name needs location permission on Android 10+; ask only when adding a network, never use or store the location itself.
+- **Untrusted Wi-Fi, fail closed:** on any Wi-Fi that isn't trusted, Hobees doesn't use it silently. Choice: *Pause* (default; a banner "Untrusted network: downloads paused" with *Use this network once*), *Use mobile data instead* (bind the app to the cellular network with `ConnectivityManager.bindProcessToNetwork`, which covers images, video and archive calls), or *Allow*. Mobile data has its own direct/paused choice. Switching networks re-checks at once; downloads that were cut off retry on the new path.
+- **Background refresh** runs only on a trusted network (or mobile data if allowed); it never reads the Wi-Fi name in the background, so no "allow all the time" location permission.
+- Tests: lock-timer logic, PIN hash/verify, settings flow, trusted-network matching (name + BSSID, look-alike rejected), fail-closed decisions per network type.
 
 ## Phase 6 – In-app gallery with export to the phone's gallery
 Today: `lib/download.dart` saves straight to public `Pictures/` / `Movies/` via MediaStore (`MainActivity.kt`), so downloads appear in Samsung Gallery immediately.
@@ -91,6 +94,13 @@ Today: `lib/download.dart` saves straight to public `Pictures/` / `Movies/` via 
 - `webview_flutter`: log in on Reddit's own page and show the real feed.
 - Optional hybrid: read post data from the loaded page and show it in Hobee's grid.
 - Fragile: breaks when Reddit changes its site. Keep the page-reading rules in one file, with fallback to the plain page.
+
+## Phase 8 – Secure path through SecuRDP (proxy)
+Needs the SecuRDP side first (planned in that project): an opt-in "Internet proxy" hub service reached through an App link at `127.0.0.1:<port>` on the phone, a standard HTTP proxy (CONNECT for HTTPS), app-link key accepted as `Proxy-Authorization: Basic`, 502/503 when the path is down, and a health check.
+- Settings → Network → Proxy: off, or HTTP proxy host:port (default `127.0.0.1`) with the optional app-link key. Works with any HTTP proxy, not only SecuRDP.
+- Adds *Secure path* as a choice for untrusted Wi-Fi (and mobile data) next to Phase 5's Pause / Mobile data / Allow. Fail closed: if the path is down, downloads pause with "Secure path not connected" (open SecuRDP / use this network once); never a silent fallback.
+- Covers Dart networking (`HttpOverrides` → `findProxy`, credentials for 407), video playback (Android-side proxy for ExoPlayer) and the background refresh. "Test connection" button.
+- Tests: proxy selection per network, 407/502/503 handling, no direct connections while the secure path is required.
 
 ## Already present (verify only)
 - Image duplicate hiding: exact URL plus 64-bit dHash (`lib/dedupe.dart`) works. Confirm it runs on the Following feed. Video duplicates are handled in Phase 3.
