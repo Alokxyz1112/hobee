@@ -18,6 +18,17 @@ Map<String, dynamic> img(String id, {int w = 100, int h = 100}) => {
       },
     };
 
+/// Dedupe.collapse without background work: thumbnails with no known hash are marked as failed
+/// (null) first, so nothing is fetched or written to SQLite after the test ends.
+(List<Post>, Map<String, List<Post>>) collapse(List<Post> posts) {
+  for (final p in posts) {
+    for (final m in p.media) {
+      if (m.thumb.isNotEmpty && !Dedupe.known(m.thumb)) Dedupe.debugSetHash(m.thumb, null);
+    }
+  }
+  return Dedupe.collapse(posts);
+}
+
 void main() {
   final cache = <String, String>{};
   setUp(() {
@@ -70,7 +81,7 @@ void main() {
     test('same post from live and archive shows once, live copy wins', () {
       final arch = post('x1', img('sameimage123'));
       final live = post('x1', {...img('sameimage123'), '_hobee_live': true});
-      final (reps, copies) = Dedupe.collapse([arch, live]);
+      final (reps, copies) = collapse([arch, live]);
       expect(reps.length, 1);
       expect(identical(reps.first, live), isTrue);
       expect(copies[live.id]!.length, 2);
@@ -80,20 +91,20 @@ void main() {
       final removed = post('r1', {...img('reuploadimg1', w: 2000, h: 2000), 'removed_by_category': 'deleted'});
       final archived = post('r2', img('reuploadimg1', w: 500, h: 500));
       final other = post('r3', img('differentimg'));
-      final (reps, _) = Dedupe.collapse([removed, archived, other]);
+      final (reps, _) = collapse([removed, archived, other]);
       expect(reps.map((p) => p.id), ['r2', 'r3']);
     });
 
     test('imgur size suffix and query params do not hide a duplicate', () {
       final a = post('i1', {'url': 'https://i.imgur.com/AbCdEfG.jpg', 'post_hint': 'image'});
       final b = post('i2', {'url': 'https://i.imgur.com/AbCdEfGh.jpg?1', 'post_hint': 'image'});
-      expect(Dedupe.collapse([a, b]).$1.length, 1);
+      expect(collapse([a, b]).$1.length, 1);
     });
 
     test('crosspost collapses with its parent', () {
       final parent = post('p1', img('parentimage1'));
       final cross = post('c1', {...img('otherfile123'), 'crosspost_parent': 't3_p1'});
-      expect(Dedupe.collapse([parent, cross]).$1.length, 1);
+      expect(collapse([parent, cross]).$1.length, 1);
     });
   });
 
@@ -130,25 +141,25 @@ void main() {
       });
       Dedupe.debugSetHash('https://b.thumbs.redditmedia.com/va2.jpg', far);
       expect(Dedupe.exactKeys(a), contains('v:vr:samevideo01'));
-      expect(Dedupe.collapse([a, link]).$1.length, 1);
+      expect(collapse([a, link]).$1.length, 1);
     });
 
     test('same duration with similar thumbnails -> collapsed (looser than pictures)', () {
       final a = v('vb1', 'reupload001', 0, dur: 30.2);
       final b = v('vb2', 'reupload002', (1 << 10) - 1, dur: 29.6); // 10 bits apart: too far for pictures
-      expect(Dedupe.collapse([a, b]).$1.length, 1);
+      expect(collapse([a, b]).$1.length, 1);
     });
 
     test('same duration with different thumbnails -> kept', () {
       final a = v('vc1', 'difvideo001', 0, dur: 15);
       final b = v('vc2', 'difvideo002', far, dur: 15);
-      expect(Dedupe.collapse([a, b]).$1.length, 2);
+      expect(collapse([a, b]).$1.length, 2);
     });
 
     test('lengths more than a second apart -> kept, even with the same thumbnail', () {
       final a = v('vd1', 'lenvideo001', 0, dur: 10);
       final b = v('vd2', 'lenvideo002', 0, dur: 11.5);
-      expect(Dedupe.collapse([a, b]).$1.length, 2);
+      expect(collapse([a, b]).$1.length, 2);
     });
 
     test('video vs picture -> never collapsed, even with identical thumbnails', () {
@@ -156,30 +167,30 @@ void main() {
       final pic = post('ve2', img('picvsvideo1'));
       Dedupe.debugSetHash(pic.media.single.thumb, 0);
       final videoNoDur = v('ve3', 'vidvsimg002', 0);
-      expect(Dedupe.collapse([video, pic]).$1.length, 2);
-      expect(Dedupe.collapse([videoNoDur, pic]).$1.length, 2);
+      expect(collapse([video, pic]).$1.length, 2);
+      expect(collapse([videoNoDur, pic]).$1.length, 2);
     });
 
     test('videos without a duration keep the strict picture distance', () {
       final a = v('vf1', 'nodur000001', 0);
       final close = v('vf2', 'nodur000002', 0x7); // 3 bits
       final loose = v('vf3', 'nodur000003', (1 << 10) - 1); // 10 bits
-      expect(Dedupe.collapse([a, close]).$1.length, 1);
-      expect(Dedupe.collapse([a, loose]).$1.length, 2);
+      expect(collapse([a, close]).$1.length, 1);
+      expect(collapse([a, loose]).$1.length, 2);
     });
 
     test('RedGIFs id in two URL forms -> collapsed', () {
       final a = post('vg1', {'url': 'https://www.redgifs.com/watch/happyblueduck'});
       final b = post('vg2', {'url': 'https://v3.redgifs.com/watch/HappyBlueDuck#rel=user'});
       expect(Dedupe.exactKeys(a), contains('v:rg:happyblueduck'));
-      expect(Dedupe.collapse([a, b]).$1.length, 1);
+      expect(collapse([a, b]).$1.length, 1);
     });
 
     test('Imgur gifv without i. and the mp4 -> collapsed', () {
       final a = post('vh1', {'url': 'https://imgur.com/AbCdEfG.gifv'});
       final b = post('vh2', {'url': 'https://i.imgur.com/AbCdEfG.mp4'});
       expect(Dedupe.exactKeys(a), contains('v:im:AbCdEfG'));
-      expect(Dedupe.collapse([a, b]).$1.length, 1);
+      expect(collapse([a, b]).$1.length, 1);
     });
 
     test('framesMatch needs 3 of 4 frames close', () {
@@ -193,9 +204,9 @@ void main() {
       final b = v('vi2', 'framevid002', far, dur: 40); // different poster frame
       Dedupe.debugSetFrames(Dedupe.frameUrl(a)!, const VideoFrames(40.1, [10, 20, 30, 40]));
       Dedupe.debugSetFrames(Dedupe.frameUrl(b)!, const VideoFrames(39.8, [11, 21, 31, far]));
-      expect(Dedupe.collapse([a, b]).$1.length, 2);
+      expect(collapse([a, b]).$1.length, 2);
       videoFrameHashing.value = true;
-      expect(Dedupe.collapse([a, b]).$1.length, 1);
+      expect(collapse([a, b]).$1.length, 1);
     });
   });
 }
