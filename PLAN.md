@@ -47,7 +47,8 @@ Goal: paste or import your subreddits/users and browse them as a combined feed, 
   - `r/name`, `/r/name`, `u/name`, `/u/name`, `/user/name`
   - full reddit / old.reddit URLs
   - multireddit links like `reddit.com/r/a+b+c`
-  - `u_name` entries (how followed users appear in old.reddit.com/subreddits/mine)
+  - `u_name` entries (how followed users appear in old.reddit.com/subreddits/mine). Usernames may contain `-` (subreddit names can't), so allow it after `u_`.
+  - Trailing `/` and query strings on URLs are ignored. A single multireddit URL can hold 300+ names; split it into batches for fetching.
   - CSV with a `subreddit` column (e.g. `subscribed_subreddits.csv` from Reddit's data export)
   - Show a preview of what was found (counts plus a list) before saving, and dedupe case-insensitively.
 - **Storage**: new SQLite tables in `lib/db.dart`: `profiles(id INTEGER PRIMARY KEY, name TEXT UNIQUE, created INTEGER)` and `follows(profile INTEGER, kind TEXT, name TEXT, added INTEGER, PRIMARY KEY(profile,kind,name))`. Create a default profile on first run. Add a management screen to remove entries and to export the list back to text/CSV.
