@@ -186,7 +186,7 @@ class Following {
     Future<void> save(Follow f, List<Map<String, dynamic>> rows) async {
       final posts = <Post>[];
       for (final d in rows) {
-        final p = Post.fromJson(d);
+        final p = Post.fromJson(slimPost(d));
         if (p != null) posts.add(p);
       }
       await Db.savePosts(source, posts);

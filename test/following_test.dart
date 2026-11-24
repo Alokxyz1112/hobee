@@ -24,6 +24,7 @@ class FakeArchive {
         {
           'id': '${f.name}_$t', 'title': 't', 'subreddit': f.kind == FollowKind.sub ? f.name : 'any', 'author': f.kind == FollowKind.user ? f.name : 'a',
           'permalink': '/p', 'created_utc': t, 'url': 'https://i.redd.it/${f.name}$t.jpg', 'post_hint': 'image',
+          'all_awardings': const [], 'retrieved_on': 1,
         }
     ];
   }
@@ -124,6 +125,15 @@ void main() {
     await Following.fetchMore(src, fromStart: true, now: t0.add(const Duration(hours: 1)));
     expect(sizes, isNotEmpty);
     expect(sizes.every((s) => s == 1), isTrue);
+  });
+
+  test('posts are saved without the archive fields the app never reads', () async {
+    Following.budget = 10;
+    await Following.fetchMore(src, now: t0);
+    final ps = await Db.load(src);
+    expect(ps, isNotEmpty);
+    expect(ps.every((p) => !p.raw.containsKey('all_awardings') && !p.raw.containsKey('retrieved_on')), isTrue);
+    expect(ps.every((p) => p.media.isNotEmpty), isTrue);
   });
 
   test('empty profile says so and is done', () async {

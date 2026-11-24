@@ -44,4 +44,23 @@ void main() {
     expect(await Db.liveIds('src'), {'a'});
     expect(await Db.thinIds('src'), {'b'});
   });
+
+  test('slimPost keeps what the app reads and drops the rest', () {
+    final d = {
+      'id': 'a', 'title': 't', 'subreddit': 's', 'author': 'u', 'permalink': '/p', 'created_utc': 5, 'over_18': true,
+      'url': 'https://i.redd.it/a.jpg', 'post_hint': 'image', 'selftext': 'x', '_hobee_live': true,
+      'all_awardings': [1, 2, 3], 'retrieved_on': 9, 'author_flair_richtext': [],
+      'crosspost_parent_list': [
+        {'id': 'b', 'title': 'c', 'url': 'https://i.redd.it/b.jpg', 'treatment_tags': []}
+      ],
+    };
+    final s = slimPost(d);
+    expect(s.keys, isNot(contains('all_awardings')));
+    expect(s.keys, isNot(contains('retrieved_on')));
+    expect(s['_hobee_live'], isTrue);
+    expect(s['over_18'], isTrue);
+    expect((s['crosspost_parent_list'] as List).single, {'id': 'b', 'title': 'c', 'url': 'https://i.redd.it/b.jpg'});
+    final a = Post.fromJson(d)!, b = Post.fromJson(s)!;
+    expect(b.media.map((m) => m.url), a.media.map((m) => m.url));
+  });
 }

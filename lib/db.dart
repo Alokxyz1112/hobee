@@ -10,12 +10,13 @@ class Db {
   static Database? _db;
   static Future<Database> get db async {
     if (_db != null) return _db!;
-    _db = await openDatabase(p.join(await getDatabasesPath(), 'hobee.db'), version: 6, onUpgrade: (db, o, n) async {
+    _db = await openDatabase(p.join(await getDatabasesPath(), 'hobee.db'), version: 7, onUpgrade: (db, o, n) async {
       if (o < 2) await _v2(db);
       if (o < 3) await _v3(db);
       if (o < 4) await _v4(db);
       if (o < 5) await _v5(db);
       if (o < 6) await _v6(db);
+      if (o < 7) await _v7(db);
     }, onCreate: (db, v) async {
       await db.execute('CREATE TABLE posts(source TEXT, id TEXT, created INTEGER, json TEXT, PRIMARY KEY(source,id))');
       await db.execute('CREATE INDEX idx_src_created ON posts(source, created)');
@@ -27,6 +28,24 @@ class Db {
       await _v6(db);
     });
     return _db!;
+  }
+
+  /// v7: Following posts saved before trimming: drop the fields the app never reads (see [slimPost]).
+  static Future<void> _v7(Database db) async {
+    var last = 0;
+    while (true) {
+      final rows = await db.rawQuery("SELECT rowid AS r, json FROM posts WHERE source LIKE 'fol:%' AND rowid > ? ORDER BY rowid LIMIT 500", [last]);
+      if (rows.isEmpty) break;
+      last = rows.last['r'] as int;
+      final b = db.batch();
+      for (final r in rows) {
+        try {
+          final slim = jsonEncode(slimPost(jsonDecode(r['json'] as String) as Map<String, dynamic>));
+          b.rawUpdate('UPDATE posts SET json=? WHERE rowid=?', [slim, r['r']]);
+        } catch (_) {}
+      }
+      await b.commit(noResult: true);
+    }
   }
 
   /// v6: local profiles and the subreddits/users each one follows (Following feed, no login).
