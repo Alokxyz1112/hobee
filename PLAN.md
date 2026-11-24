@@ -61,6 +61,10 @@ Goal: paste or import your subreddits/users and browse them as a combined feed, 
   - Redlib: `/r/a+b+c?sort=new` as fallback.
   - Both return reddit-JSON-shaped rows, like the existing user sources.
 - **Following feed**: a new source key (e.g. `following`). Merges subreddit batches plus per-user pages, sorted by date, cached via `Db.savePosts`. Existing filters and `Dedupe.collapse` apply unchanged.
+- **Must work without login** (Reddit login is unresolved): today the Home tab and normal subreddit/user pages show "Log in with Reddit" when logged out, and only Deep Search works.
+  - Entry point in the Deep Search tab (e.g. a "Following" segment next to Accounts / Subreddits) showing the active profile's feed in the same masonry grid, plus on the logged-out Home screen.
+  - Sources in order: Reddit RSS → Redlib → public archives (Arctic Shift, as Deep Search uses today) when the live sources are blocked or rate-limited. Show which sources are working, like the existing Deep Search status panel.
+  - Opening a subreddit or user from the feed goes to its Deep Search view, not the login-only page.
 - Respect rate limits: run requests one batch at a time, back off on 429, and reuse the existing user agent and retry handling.
 - Tests: parser tests (all input formats), feed merge/paging tests, and profile isolation (importing into one profile doesn't touch others; deleting a profile removes only its follows).
 
