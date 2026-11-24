@@ -150,6 +150,9 @@ class Following {
     return allDone && added == 0 ? -1 : added;
   }
 
+  /// True while a refresh round still has entries to check (the grid keeps fetching on its own until done).
+  static bool refreshing(String source) => _round[source]?.isNotEmpty ?? false;
+
   static int _ts(Map d) {
     final v = d['created_utc'];
     return v is num ? v.toInt() : int.tryParse('$v') ?? 0;

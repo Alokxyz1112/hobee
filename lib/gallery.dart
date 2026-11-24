@@ -1,3 +1,4 @@
+import 'following.dart';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -299,6 +300,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
           _bg++;
           again = true;
         }
+        // Following feed: finish the refresh round in the background (a small batch per call, paced).
+        if (!again && isFollowing(src) && Following.refreshing(src)) again = true;
       }
       _errRetry = 0;
       _noGrow = entries.length > before ? 0 : _noGrow + 1;
