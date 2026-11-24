@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
+import 'crash_log.dart';
 import 'db.dart';
 import 'embeds.dart';
 import 'models.dart';
@@ -37,6 +38,9 @@ class Dedupe {
   static final Set<String> _framePending = {};
   static final List<String> _frameQueue = [];
   static bool _frameRunning = false;
+  /// Videos whose frames were read / could not be read this session (shown under the setting).
+  static final frameStats = ValueNotifier<(int, int)>((0, 0));
+  static int _frameErrorsLogged = 0;
 
   /// Grabs and hashes the frames of a video file. Test seam; the app uses Android's MediaMetadataRetriever.
   static Future<VideoFrames?> Function(String url) grabFrames = _nativeFrames;
@@ -68,7 +72,15 @@ class Dedupe {
     if (_frameRunning || _frameQueue.isEmpty) return;
     _frameRunning = true;
     final u = _frameQueue.removeLast();
-    _loadFrames(u).then((f) => _frames[u] = f, onError: (_) => _frames[u] = null).whenComplete(() {
+    _loadFrames(u).then((f) => _frames[u] = f, onError: (Object e, StackTrace s) {
+      _frames[u] = null;
+      // Keep the first few reasons in the crash log (Settings → Crash log) so failures can be diagnosed.
+      if (_frameErrorsLogged++ < 3) CrashLog.record('Video frames failed for $u: $e', s, 'frames');
+      return null;
+    }).then((f) {
+      final (ok, bad) = frameStats.value;
+      frameStats.value = f == null ? (ok, bad + 1) : (ok + 1, bad);
+    }).whenComplete(() {
       _frameRunning = false;
       _framePending.remove(u);
       _bump ??= Timer(const Duration(milliseconds: 2000), () {
@@ -113,11 +125,12 @@ class Dedupe {
     });
     final ms = (r?['durationMs'] as num?)?.toInt() ?? 0;
     final frames = (r?['frames'] as List?) ?? const [];
-    if (ms <= 0 || frames.length != frameSpots.length) return null;
+    if (ms <= 0 || frames.length != frameSpots.length) throw StateError('no video length or frames (durationMs=$ms, frames=${frames.length})');
     final hs = <int>[];
-    for (final b in frames) {
+    for (var k = 0; k < frames.length; k++) {
+      final b = frames[k];
       final h = b is Uint8List && b.isNotEmpty ? await compute(dHash, b) : null;
-      if (h == null) return null;
+      if (h == null) throw StateError('frame at ${frameSpots[k]}% unreadable (${b is Uint8List ? b.length : 0} bytes)');
       hs.add(h);
     }
     return VideoFrames(ms / 1000, hs);
