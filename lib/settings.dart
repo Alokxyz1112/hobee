@@ -213,7 +213,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               key: const Key('bg-refresh'),
               secondary: const Icon(Icons.update),
               title: const Text('Background refresh'),
-              subtitle: const Text('Keeps the Following profile up to date while Hobees is closed. Android picks the exact time, so it isn't live.'),
+              subtitle: const Text('Keeps the Following profile up to date while Hobees is closed. Android picks the exact time, so it is not live.'),
               value: on,
               onChanged: (v) => BackgroundRefresh.enabled.value = v,
             ),
