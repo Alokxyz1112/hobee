@@ -109,7 +109,7 @@ void main() {
         'url': 'https://v.redd.it/$vid',
         'thumbnail': thumb,
         'secure_media': {
-          'reddit_video': {'fallback_url': 'https://v.redd.it/$vid/DASH_720.mp4?source=fallback', if (dur != null) 'duration': dur}
+          'reddit_video': {'fallback_url': 'https://v.redd.it/$vid/DASH_720.mp4?source=fallback', 'duration': ?dur}
         },
       });
     }

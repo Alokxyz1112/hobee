@@ -81,7 +81,7 @@ class Dedupe {
 
   static List<String> _frameKeys(String u) => ['$u#d', for (final t in frameSpots) '$u#t$t'];
 
-  /// Cached in the phash table: '<url>#d' = length in ms (0 = failed), '<url>#t10' … = frame hashes.
+  /// Cached in the phash table: `url#d` = length in ms (0 = failed), `url#t10` … = frame hashes.
   static Future<VideoFrames?> _loadFrames(String u) async {
     final keys = _frameKeys(u);
     final got = await Db.hashes(keys);
