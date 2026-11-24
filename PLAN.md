@@ -50,16 +50,28 @@ Goal: paste or import your subreddits/users and browse them as a combined feed, 
   - `u_name` entries (how followed users appear in old.reddit.com/subreddits/mine)
   - CSV with a `subreddit` column (e.g. `subscribed_subreddits.csv` from Reddit's data export)
   - Show a preview of what was found (counts plus a list) before saving, and dedupe case-insensitively.
-- **Storage**: new SQLite table `follows(kind TEXT, name TEXT, added INTEGER, PRIMARY KEY(kind,name))` in `lib/db.dart`. Add a management screen to remove entries and to export the list back to text/CSV.
+- **Storage**: new SQLite tables in `lib/db.dart`: `profiles(id INTEGER PRIMARY KEY, name TEXT UNIQUE, created INTEGER)` and `follows(profile INTEGER, kind TEXT, name TEXT, added INTEGER, PRIMARY KEY(profile,kind,name))`. Create a default profile on first run. Add a management screen to remove entries and to export the list back to text/CSV.
+- **Feed profiles** (local, no Reddit login): named follow lists (e.g. "Main", "Art") you switch between.
+  - Create, rename, delete profiles; switcher in the Following feed header.
+  - Import, export and manage screens act on one profile at a time.
+  - Each profile has its own feed cache key and scroll position.
 - **No-login subreddit source** (new; `public_sources.dart` only covers users today):
   - Reddit RSS: `/r/a+b+c/new/.rss`, batching subs into groups of about 20–30 per request.
   - Redlib: `/r/a+b+c?sort=new` as fallback.
   - Both return reddit-JSON-shaped rows, like the existing user sources.
 - **Following feed**: a new source key (e.g. `following`). Merges subreddit batches plus per-user pages, sorted by date, cached via `Db.savePosts`. Existing filters and `Dedupe.collapse` apply unchanged.
 - Respect rate limits: run requests one batch at a time, back off on 429, and reuse the existing user agent and retry handling.
-- Tests: parser tests (all input formats) and feed merge/paging tests.
+- Tests: parser tests (all input formats), feed merge/paging tests, and profile isolation (importing into one profile doesn't touch others; deleting a profile removes only its follows).
 
-## Phase 5 – WebView login (only if phases 1–4 aren't enough)
+## Phase 5 – App lock (off by default)
+- `local_auth`: unlock with fingerprint/face, falling back to the device PIN/pattern/password. Optional app-only PIN, stored as a salted hash in `flutter_secure_storage`.
+- Lock on app start and after a chosen time in the background (immediately / 1 min / 5 min).
+- Optional "hide in recent apps": blank the app-switcher preview and block screenshots (`FLAG_SECURE`).
+- Optional per-profile lock: chosen profiles need unlocking before switching to them.
+- No lockout: if biometrics are removed, fall back to device credential or app PIN; turning the lock off requires unlocking first.
+- Tests: lock-timer logic, PIN hash/verify, settings flow.
+
+## Phase 6 – WebView login (only if phases 1–5 aren't enough)
 - `webview_flutter`: log in on Reddit's own page and show the real feed.
 - Optional hybrid: read post data from the loaded page and show it in Hobee's grid.
 - Fragile: breaks when Reddit changes its site. Keep the page-reading rules in one file, with fallback to the plain page.
