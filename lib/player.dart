@@ -70,6 +70,10 @@ String endLabel(Duration pos, Duration total, {required bool remaining}) {
 /// above it instead of underneath.
 final viewerChromeInset = ValueNotifier<double>(0);
 
+/// True while the current image or video is zoomed in. The viewer hides its blurred panels then (they had
+/// to re-blur on every zoom frame) and, for videos, stops swiping to the next item until you zoom out.
+final viewerZoomed = ValueNotifier<bool>(false);
+
 /// Sources to try in order: HLS (has sound) or the resolved mp4, then the plain mp4, then Reddit's preview clip.
 Future<List<(String, bool)>> videoSources(MediaItem it) async {
   final out = <(String, bool)>[];

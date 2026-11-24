@@ -49,13 +49,24 @@ class _ViewerState extends State<Viewer> {
 
   @override
   void dispose() {
+    viewerZoomed.removeListener(_zoomChanged);
     viewerChromeInset.value = 0;
+    viewerZoomed.value = false;
     super.dispose();
+  }
+
+  void _zoomChanged() {
+    // Zoomed in: hide the panels so the picture isn't re-blurred behind them on every frame; for videos also
+    // stop the page swipe (pictures hand the swipe back to the pager at their edges themselves).
+    if (viewerZoomed.value && chrome) chrome = false;
+    if (mounted) setState(() {});
   }
 
   @override
   void initState() {
     super.initState();
+    viewerZoomed.value = false;
+    viewerZoomed.addListener(_zoomChanged);
     markRead(widget.entries[widget.start].post.id);
     Interest.opened(widget.entries[widget.start].post);
     WidgetsBinding.instance.addPostFrameCallback((_) => _prefetch(widget.start));
@@ -128,10 +139,15 @@ class _ViewerState extends State<Viewer> {
       body: GestureDetector(
         onTap: () => setState(() => chrome = !chrome),
         child: Stack(children: [
-          PageView.builder(
+          // The scope lets a zoomed picture pan to its edge before the pager takes the swipe, instead of
+          // both fighting over every move (the sluggish zoom).
+          PhotoViewGestureDetectorScope(
+           axis: Axis.horizontal,
+           child: PageView.builder(
             controller: pc,
+            physics: viewerZoomed.value && e.item.type == MediaType.video ? const NeverScrollableScrollPhysics() : null,
             itemCount: widget.entries.length,
-            onPageChanged: (i) { markRead(widget.entries[i].post.id); if (widget.entries[i].post.id != widget.entries[cur].post.id) Interest.opened(widget.entries[i].post); setState(() => cur = i); _prefetch(i); },
+            onPageChanged: (i) { viewerZoomed.value = false; markRead(widget.entries[i].post.id); if (widget.entries[i].post.id != widget.entries[cur].post.id) Interest.opened(widget.entries[i].post); setState(() => cur = i); _prefetch(i); },
             itemBuilder: (_, i) {
               final it = widget.entries[i].item;
               if (it.type == MediaType.video) return VideoPage(item: it, active: i == cur);
@@ -147,6 +163,7 @@ class _ViewerState extends State<Viewer> {
               }
               return _photo(it.full, it);
             },
+          ),
           ),
 
           if (chrome)
@@ -383,6 +400,7 @@ class PhotoFallbackState extends State<PhotoFallback> {
             imageProvider: p,
             minScale: PhotoViewComputedScale.contained,
             maxScale: PhotoViewComputedScale.covered * 4,
+            scaleStateChangedCallback: (s) => viewerZoomed.value = s != PhotoViewScaleState.initial,
             backgroundDecoration: const BoxDecoration(color: Colors.black),
             loadingBuilder: (_, _) => const SizedBox.shrink(),
             errorBuilder: (_, _, _) => const SizedBox.shrink(), // failures are handled by _watch
