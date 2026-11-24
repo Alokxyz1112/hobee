@@ -1,3 +1,4 @@
+import 'following.dart';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -79,6 +80,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
     Dedupe.version.addListener(_rebuildSoon);
     videoFrameHashing.addListener(_rebuildSoon);
     originalShapeGrid.addListener(_shapeChanged);
+    Following.version.addListener(_followingSaved);
+    followingKind.addListener(_rebuildSoon);
     MediaCheck.gone.addListener(_goneChanged);
     dateRange.addListener(_seek);
     Viewed.names.addListener(_viewedChanged);
@@ -98,6 +101,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
     Dedupe.version.removeListener(_rebuildSoon);
     videoFrameHashing.removeListener(_rebuildSoon);
     originalShapeGrid.removeListener(_shapeChanged);
+    Following.version.removeListener(_followingSaved);
+    followingKind.removeListener(_rebuildSoon);
+    _folT?.cancel();
     _rebuildT?.cancel();
     MediaCheck.gone.removeListener(_goneChanged);
     _goneT?.cancel();
@@ -186,6 +192,18 @@ class _GalleryScreenState extends State<GalleryScreen> {
   bool _anchor = false;
   /// Grid shape the current [sections] were laid out with (to anchor across a shape change).
   bool _square = !originalShapeGrid.value;
+  Timer? _folT;
+  /// The Following refresher saved posts: reload from the database (at most every 1.5 s), keeping the view in place.
+  void _followingSaved() {
+    if (!isFollowing(effectiveSource())) return;
+    _folT ??= Timer(const Duration(milliseconds: 1500), () {
+      _folT = null;
+      if (!mounted || !isFollowing(effectiveSource())) return;
+      _anchor = true;
+      _fromDb();
+    });
+  }
+
   void _shapeChanged() {
     _anchor = true;
     _rebuildSoon();
@@ -215,6 +233,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     _shown = shown.length;
     _textHits = textish ? 0 : shown.where((p) => p.media.isEmpty).length;
     var cp = <String, List<Post>>{};
+    if (isFollowing(effectiveSource())) shown = Following.applyKind(shown, effectiveSource());
     if (dupesOn && !textish) (shown, cp) = Dedupe.collapse(shown);
     copies = cp;
     final e = flatten(shown);

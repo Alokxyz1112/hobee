@@ -1,3 +1,5 @@
+import 'background.dart';
+import 'following_ui.dart';
 import 'follows.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -52,6 +54,7 @@ Future<void> _main() async {
   await _safe('subNav', () async => initSubNav());
   await _safe('viewed', Viewed.load);
   await _safe('follows', FollowStore.load);
+  await _safe('background', BackgroundRefresh.load);
   // Older builds saved suggestion filter choices; they are gone now, so drop the key.
   await _safe('suggest', () async => sp.remove('suggestPrefs'));
   await _safe('video', VideoPrefs.load);
@@ -196,6 +199,13 @@ class LoginPrompt extends StatelessWidget {
               const Text('Your Reddit media, ad-free.', textAlign: TextAlign.center),
               const SizedBox(height: 24),
               FilledButton.icon(onPressed: () => startLogin(context), icon: const Icon(Icons.login), label: const Text('Log in with Reddit')),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                key: const Key('home-following'),
+                onPressed: () => openFollowing(),
+                icon: const Icon(Icons.dynamic_feed),
+                label: const Text('Following (no login)'),
+              ),
               if (Auth.i.lastError != null) ...[
                 const SizedBox(height: 16),
                 Text(Auth.i.lastError!, style: const TextStyle(color: accent), textAlign: TextAlign.center),

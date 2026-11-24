@@ -275,3 +275,21 @@ List<MediaItem> _parseMedia(Map<String, dynamic> d0) {
   }
   return out;
 }
+
+/// Top-level post fields the app reads (media, search, filters, badges). Everything else an archive returns
+/// is dropped before saving, which makes a stored post several times smaller.
+const _keepKeys = {
+  'id', 'name', 'title', 'subreddit', 'author', 'permalink', 'created_utc', 'url', 'url_overridden_by_dest',
+  'post_hint', 'is_gallery', 'gallery_data', 'media_metadata', 'preview', 'media', 'secure_media', 'thumbnail',
+  'crosspost_parent_list', 'over_18', 'selftext', 'link_flair_text', 'author_flair_text', 'domain', 'score',
+  'num_comments', 'is_self', 'is_video',
+};
+
+/// [d] without the fields the app never reads (keeps `_hobee_*` markers; crossposts are trimmed the same way).
+Map<String, dynamic> slimPost(Map<String, dynamic> d) => {
+      for (final e in d.entries)
+        if (_keepKeys.contains(e.key) || e.key.startsWith('_hobee'))
+          e.key: e.key == 'crosspost_parent_list' && e.value is List
+              ? [for (final c in e.value as List) c is Map<String, dynamic> ? slimPost(c) : c]
+              : e.value,
+    };

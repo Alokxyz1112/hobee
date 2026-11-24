@@ -51,6 +51,8 @@ dependencies:
   wakelock_plus: ^1.8.2
   # Import/export of Following lists (.txt/.csv). Pinned to a release older than two weeks.
   file_picker: 13.3.3
+  # Background refresh of the Following feed (Android WorkManager). Pinned to a release older than two weeks.
+  workmanager: 0.10.10
 dev_dependencies:
   flutter_launcher_icons: ^0.14.1
   flutter_test:
