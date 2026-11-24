@@ -1,3 +1,4 @@
+import 'masonry.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'relevance.dart';
 import 'viewed.dart';
@@ -256,6 +257,8 @@ Future<void> loadFilterPrefs() async {
   saveOriginalBytes.addListener(() => sp.setBool('saveOriginalBytes', saveOriginalBytes.value));
   cleanDownloads.addListener(() => sp.setBool('cleanDownloads', cleanDownloads.value));
   originalQuality.addListener(() => sp.setBool('originalQuality', originalQuality.value));
+  originalShapeGrid.value = sp.getBool('originalShapeGrid') ?? true;
+  originalShapeGrid.addListener(() => sp.setBool('originalShapeGrid', originalShapeGrid.value));
   hideDupes.value = sp.getBool('hideDupes') ?? false;
   hideDupesDeep.value = sp.getBool('hideDupesDeep') ?? false;
   hideGone.value = sp.getBool('hideGone') ?? false;

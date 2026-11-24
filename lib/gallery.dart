@@ -11,6 +11,7 @@ import 'db.dart';
 import 'dedupe.dart';
 import 'crash_log.dart';
 import 'load_all.dart';
+import 'masonry.dart';
 import 'filters.dart';
 import 'sub_search.dart';
 import 'sub_users.dart';
@@ -76,6 +77,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     subSort.addListener(_switchSort);
     viewFilters.addListener(_rebuildSoon);
     Dedupe.version.addListener(_rebuildSoon);
+    originalShapeGrid.addListener(_shapeChanged);
     MediaCheck.gone.addListener(_goneChanged);
     dateRange.addListener(_seek);
     Viewed.names.addListener(_viewedChanged);
@@ -93,6 +95,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     subSort.removeListener(_switchSort);
     viewFilters.removeListener(_rebuildSoon);
     Dedupe.version.removeListener(_rebuildSoon);
+    originalShapeGrid.removeListener(_shapeChanged);
     _rebuildT?.cancel();
     MediaCheck.gone.removeListener(_goneChanged);
     _goneT?.cancel();
@@ -179,6 +182,21 @@ class _GalleryScreenState extends State<GalleryScreen> {
   int _bg = 0, _shown = 0, _textHits = 0;
   DateTime _bgStart = DateTime.now();
   bool _anchor = false;
+  /// Grid shape the current [sections] were laid out with (to anchor across a shape change).
+  bool _square = !originalShapeGrid.value;
+  void _shapeChanged() {
+    _anchor = true;
+    _rebuildSoon();
+  }
+
+  /// Tile aspect ratios per section.
+  List<List<double>> _aspects(List<_Section> secs, List<Entry> es, bool square) =>
+      [for (final s in secs) [for (final i in s.idx) tileAspect(es[i].item.aspect, square: square)]];
+
+  Map<String, double> _tops(List<_Section> secs, List<Entry> es, bool square, double w) => sectionTops(
+      [for (final s in secs) [for (final i in s.idx) '${es[i].post.id}#${es[i].index}']],
+      _aspects(secs, es, square), _cols, w, _headerH);
+
   void _viewedChanged() {
     if (!isSubSearch(effectiveSource()) && !isSubSearch(_loaded ?? '')) return;
     _anchor = true;
@@ -214,12 +232,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
     final anchor = _anchor;
     _anchor = false;
     double? to;
+    final square = !originalShapeGrid.value;
     if (anchor && sc.hasClients && sc.offset > 0 && old.isNotEmpty) {
-      final pos = sc.position;
-      final tile = pos.viewportDimension > 0 ? (context.size?.width ?? 360) / _cols : 120.0;
-      to = anchoredOffset(sc.offset, pos.maxScrollExtent + pos.viewportDimension, [for (final x in old) x.post.id], {for (final x in e) x.post.id}, tile, _cols);
+      final w = context.size?.width ?? 360;
+      to = anchoredOffset(sc.offset, _tops(sections, old, _square, w), _tops(secs, e, square, w));
     }
-    if (mounted) setState(() { entries = e; sections = secs; });
+    if (mounted) setState(() { entries = e; sections = secs; _square = square; });
     _checkEndSoon();
     if (to != null) {
       final t = to;
@@ -346,14 +364,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
     return ' · back to ${t.day}/${t.month}/${t.year}';
   }
 
-  double _offsetOf(int s, double w) {
-    final cell = w / _cols;
-    var off = 0.0;
-    for (var i = 0; i < s; i++) {
-      off += _headerH + (sections[i].idx.length / _cols).ceil() * cell;
-    }
-    return off;
-  }
+  double _offsetOf(int s, double w) => sectionOffset(_aspects(sections, entries, _square), s, _cols, w, _headerH);
+
+  /// One section as a masonry sliver; Square mode gives the old fixed grid.
+  Widget _masonry(_Section s, Widget Function(int entryIndex) tile) => masonrySliver(
+      [for (final i in s.idx) tileAspect(entries[i].item.aspect, square: _square)], _cols, (j) => tile(s.idx[j]));
 
   void _jump() {
     final years = <int, List<int>>{};
@@ -456,10 +471,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
             for (final s in sections)
               SliverMainAxisGroup(slivers: [
                 SliverPersistentHeader(pinned: true, delegate: _Header(s.label, '${s.idx.length}', cs)),
-                SliverGrid(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: _cols, mainAxisSpacing: 0, crossAxisSpacing: 0),
-                  delegate: SliverChildBuilderDelegate((_, j) {
-                    final i = s.idx[j];
+                _masonry(s, (i) {
                     final e = entries[i];
                     final dup = copies[e.post.id];
                     return GestureDetector(
@@ -487,8 +499,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                         ]),
                       ),
                     );
-                  }, childCount: s.idx.length),
-                ),
+                  }),
               ]),
             if (_textHits > 0 && Rel.queryText().trim().isNotEmpty)
               SliverToBoxAdapter(
@@ -562,17 +573,4 @@ class _Badge extends StatelessWidget {
         decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
         child: Icon(icon, color: Colors.white, size: 16),
       );
-}
-
-/// Keep the view near the same item when entries above it disappear: estimate the top item
-/// from the scroll fraction, then move up by the rows removed above it.
-double anchoredOffset(double offset, double total, List<String> oldIds, Set<String> kept, double tile, int cols) {
-  if (oldIds.isEmpty || total <= 0) return offset;
-  final top = (offset / total * oldIds.length).floor().clamp(0, oldIds.length - 1);
-  var gone = 0;
-  for (var i = 0; i < top; i++) {
-    if (!kept.contains(oldIds[i])) gone++;
-  }
-  final o = offset - (gone / cols).floor() * tile;
-  return o < 0 ? 0 : o;
 }
