@@ -71,7 +71,17 @@ Goal: paste or import your subreddits/users and browse them as a combined feed, 
 - No lockout: if biometrics are removed, fall back to device credential or app PIN; turning the lock off requires unlocking first.
 - Tests: lock-timer logic, PIN hash/verify, settings flow.
 
-## Phase 6 – WebView login (only if phases 1–5 aren't enough)
+## Phase 6 – In-app gallery with export to the phone's gallery
+Today: `lib/download.dart` saves straight to public `Pictures/` / `Movies/` via MediaStore (`MainActivity.kt`), so downloads appear in Samsung Gallery immediately.
+- **Save destination setting**: "Hobees gallery (private)" (new default) or "Phone gallery" (current behaviour).
+- **Private storage**: files in app-private storage (`getApplicationDocumentsDirectory()/gallery/`), not visible to other apps or the Samsung Gallery. New SQLite table `saved(id INTEGER PRIMARY KEY, path TEXT, kind TEXT, width INTEGER, height INTEGER, duration REAL, post_id TEXT, subreddit TEXT, author TEXT, profile INTEGER, saved_at INTEGER)`. Keep the existing metadata cleaning (`clean.dart` / `clean_image.dart`) on save.
+- **Gallery screen**: grid reusing the feed grid and viewer (Phase 1 masonry, Phase 2 viewer); sort by date saved, filter by subreddit/user/profile/type; multi-select; delete; open source post.
+- **Export**: selected items → existing MediaStore save path, so they show up in Samsung Gallery; option "remove from Hobees after export". Also "Share" via the Android share sheet.
+- **App lock**: the gallery is covered by the Phase 5 lock; optional "always require unlock for the gallery".
+- **Risk – data loss**: private files are deleted when the app is uninstalled (or its data cleared). Show this in the setting, and add "Export all" plus a backup/restore as a single .zip file.
+- Tests: `saved` table CRUD, save-destination switch, export calls the MediaStore path with the right name/mime, delete removes file and row.
+
+## Phase 7 – WebView login (only if phases 1–6 aren't enough)
 - `webview_flutter`: log in on Reddit's own page and show the real feed.
 - Optional hybrid: read post data from the loaded page and show it in Hobee's grid.
 - Fragile: breaks when Reddit changes its site. Keep the page-reading rules in one file, with fallback to the plain page.
