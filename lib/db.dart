@@ -55,12 +55,34 @@ class Db {
     await db.execute('CREATE TABLE IF NOT EXISTS sub_meta(sub TEXT PRIMARY KEY, nsfw REAL, fetched INTEGER)');
   }
 
-  /// Every cached post once (by id), newest first. Decoded off the UI thread.
-  static Future<List<Post>> loadEverything() async {
+  /// Rows per database read. One query result is copied whole across the platform channel, so a big feed
+  /// read at once can run the Android side out of memory; reading it in chunks keeps each copy small.
+  static int chunkRows = 1000;
+
+  /// Posts matching [where], newest first, read [chunkRows] at a time and decoded off the UI thread.
+  static Future<List<Post>> _loadChunked(String where, List<Object?> args, {bool onePerId = false}) async {
     final d = await db;
-    final rows = await d.rawQuery('SELECT json FROM posts GROUP BY id ORDER BY created DESC');
-    return compute(_decodeAll, [for (final r in rows) r['json'] as String]);
+    final out = <Post>[];
+    final seen = <String>{};
+    var last = 0;
+    while (true) {
+      final rows = await d.rawQuery('SELECT rowid AS r, json FROM posts WHERE $where AND rowid > ? ORDER BY rowid LIMIT ?',
+          [...args, last, chunkRows]);
+      if (rows.isEmpty) break;
+      last = rows.last['r'] as int;
+      final raw = [for (final r in rows) r['json'] as String];
+      final posts = raw.length > 150 ? await compute(_decodeAll, raw) : _decodeAll(raw);
+      for (final p in posts) {
+        if (!onePerId || seen.add(p.id)) out.add(p);
+      }
+      if (rows.length < chunkRows) break;
+    }
+    out.sort((a, b) => b.created.compareTo(a.created));
+    return out;
   }
+
+  /// Every cached post once (by id), newest first. Decoded off the UI thread.
+  static Future<List<Post>> loadEverything() => _loadChunked('1=1', const [], onePerId: true);
 
   static Future<int> count(String source) async {
     final d = await db;
@@ -104,14 +126,14 @@ class Db {
 
   static Future<Set<String>> liveIds(String source) async {
     final d = await db;
-    final rows = await d.query('posts', columns: ['id', 'json'], where: 'source=?', whereArgs: [source]);
-    return {for (final r in rows) if ((r['json'] as String).contains('"_hobee_live":true')) r['id'] as String};
+    final rows = await d.rawQuery('SELECT id FROM posts WHERE source=? AND instr(json, ?) > 0', [source, '"_hobee_live":true']);
+    return {for (final r in rows) r['id'] as String};
   }
 
   static Future<Set<String>> thinIds(String source) async {
     final d = await db;
-    final rows = await d.query('posts', columns: ['id', 'json'], where: 'source=?', whereArgs: [source]);
-    return {for (final r in rows) if ((r['json'] as String).contains('"_hobee_thin":true')) r['id'] as String};
+    final rows = await d.rawQuery('SELECT id FROM posts WHERE source=? AND instr(json, ?) > 0', [source, '"_hobee_thin":true']);
+    return {for (final r in rows) r['id'] as String};
   }
 
   static Future<void> savePosts(String source, List<Post> posts) async {
@@ -124,13 +146,8 @@ class Db {
     await b.commit(noResult: true);
   }
 
-  static Future<List<Post>> load(String source) async {
-    final d = await db;
-    final rows = await d.query('posts', columns: ['json'], where: 'source=?', whereArgs: [source], orderBy: 'created DESC');
-    final raw = [for (final r in rows) r['json'] as String];
-    // Big profiles: decode the JSON off the UI thread so opening one doesn't freeze the screen.
-    return raw.length > 150 ? await compute(_decodeAll, raw) : _decodeAll(raw);
-  }
+  /// Posts of [source], newest first (read in chunks; big feeds are decoded off the UI thread).
+  static Future<List<Post>> load(String source) => _loadChunked('source=?', [source]);
 
   static Future<(String?, bool)> cursor(String source) async {
     final d = await db;
