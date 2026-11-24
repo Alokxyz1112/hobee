@@ -1,3 +1,4 @@
+import 'background.dart';
 import 'following_ui.dart';
 import 'follows.dart';
 import 'dart:async';
@@ -53,6 +54,7 @@ Future<void> _main() async {
   await _safe('subNav', () async => initSubNav());
   await _safe('viewed', Viewed.load);
   await _safe('follows', FollowStore.load);
+  await _safe('background', BackgroundRefresh.load);
   // Older builds saved suggestion filter choices; they are gone now, so drop the key.
   await _safe('suggest', () async => sp.remove('suggestPrefs'));
   await _safe('video', VideoPrefs.load);

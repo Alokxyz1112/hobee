@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hobee/background.dart';
 import 'package:hobee/db.dart';
 import 'package:hobee/following.dart';
 import 'package:hobee/follows.dart';
@@ -169,5 +170,13 @@ void main() {
     }
     expect(followingStatus.value, startsWith('All 4 checked'));
     expect(FollowingRefresher.running(src), isFalse);
+  });
+
+  test('a background run continues the active profile round until done', () async {
+    Following.budget = 1;
+    await FollowStore.setActive(pid);
+    expect(await BackgroundRefresh.run(), isTrue);
+    expect(followingStatus.value, startsWith('All 4 checked'));
+    expect(await posts(), greaterThan(0));
   });
 }

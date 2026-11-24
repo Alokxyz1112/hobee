@@ -1,3 +1,4 @@
+import 'background.dart';
 import 'follows_ui.dart';
 import 'dedupe.dart';
 import 'masonry.dart';
@@ -204,6 +205,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Viewed users cleared')));
             },
           ),
+        ),
+        ValueListenableBuilder(
+          valueListenable: BackgroundRefresh.enabled,
+          builder: (_, on, _) => Column(mainAxisSize: MainAxisSize.min, children: [
+            SwitchListTile(
+              key: const Key('bg-refresh'),
+              secondary: const Icon(Icons.update),
+              title: const Text('Background refresh'),
+              subtitle: const Text('Keeps the Following profile up to date while Hobees is closed. Android picks the exact time, so it isn't live.'),
+              value: on,
+              onChanged: (v) => BackgroundRefresh.enabled.value = v,
+            ),
+            if (on) ...[
+              ValueListenableBuilder(
+                valueListenable: BackgroundRefresh.wifiOnly,
+                builder: (_, w, _) => CheckboxListTile(
+                  contentPadding: const EdgeInsets.only(left: 72, right: 16),
+                  dense: true,
+                  title: const Text('Only on Wi-Fi'),
+                  value: w,
+                  onChanged: (v) => BackgroundRefresh.wifiOnly.value = v ?? true,
+                ),
+              ),
+              ValueListenableBuilder(
+                valueListenable: BackgroundRefresh.chargingOnly,
+                builder: (_, c, _) => CheckboxListTile(
+                  contentPadding: const EdgeInsets.only(left: 72, right: 16),
+                  dense: true,
+                  title: const Text('Only while charging'),
+                  value: c,
+                  onChanged: (v) => BackgroundRefresh.chargingOnly.value = v ?? false,
+                ),
+              ),
+              ValueListenableBuilder(
+                valueListenable: BackgroundRefresh.everyMinutes,
+                builder: (_, m, _) => ListTile(
+                  contentPadding: const EdgeInsets.only(left: 72, right: 16),
+                  dense: true,
+                  title: const Text('How often'),
+                  trailing: DropdownButton<int>(
+                    value: m,
+                    items: [for (final c in BackgroundRefresh.choices) DropdownMenuItem(value: c, child: Text(c < 60 ? 'Every $c min' : 'Every ${c ~/ 60} h'))],
+                    onChanged: (v) => BackgroundRefresh.everyMinutes.value = v ?? 60,
+                  ),
+                ),
+              ),
+            ],
+          ]),
         ),
         ListTile(
           leading: const Icon(Icons.playlist_add_check),
