@@ -39,6 +39,19 @@ class _ViewerState extends State<Viewer> {
   late final PageController pc = PageController(initialPage: widget.start);
   late int cur = widget.start;
   bool chrome = true;
+  final _panelKey = GlobalKey();
+
+  /// Tell the video player how tall the bottom info panel is, so its controls sit above it.
+  void _reportPanel() {
+    final h = chrome ? (_panelKey.currentContext?.size?.height ?? 0.0) : 0.0;
+    if (viewerChromeInset.value != h) viewerChromeInset.value = h;
+  }
+
+  @override
+  void dispose() {
+    viewerChromeInset.value = 0;
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -89,6 +102,9 @@ class _ViewerState extends State<Viewer> {
   @override
   Widget build(BuildContext context) {
     final e = widget.entries[cur];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _reportPanel();
+    });
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
@@ -137,6 +153,7 @@ class _ViewerState extends State<Viewer> {
             Positioned(
               left: 0, right: 0, bottom: 0,
               child: Glass(
+                key: _panelKey,
                 fill: Colors.black.withValues(alpha: 0.35),
                 border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.15))),
                 child: Padding(

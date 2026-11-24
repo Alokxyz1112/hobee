@@ -13,6 +13,8 @@ class VideoPrefs {
   static final muted = ValueNotifier<bool>(false);
   static final loop = ValueNotifier<bool>(true);
   static final speed = ValueNotifier<double>(1);
+  /// Right-hand time label: true shows time left (-1:23), false the total length. Tap it to switch.
+  static final showRemaining = ValueNotifier<bool>(true);
   static final _pos = <String, int>{};
   static SharedPreferences? _sp;
 
@@ -22,6 +24,8 @@ class VideoPrefs {
     muted.value = sp.getBool('videoMuted') ?? startMuted.value;
     loop.value = sp.getBool('videoLoop') ?? true;
     speed.value = sp.getDouble('videoSpeed') ?? 1;
+    showRemaining.value = sp.getBool('videoRemaining') ?? true;
+    showRemaining.addListener(() => sp.setBool('videoRemaining', showRemaining.value));
     startMuted.addListener(() {
       sp.setBool('startMuted', startMuted.value);
       muted.value = startMuted.value;
@@ -54,6 +58,17 @@ String fmtDur(Duration d) {
   String two(int x) => x.toString().padLeft(2, '0');
   return h > 0 ? '$h:${two(m)}:${two(ss)}' : '$m:${two(ss)}';
 }
+
+/// Right-hand player label: time left ("-1:23") or the total length.
+String endLabel(Duration pos, Duration total, {required bool remaining}) {
+  if (!remaining) return fmtDur(total);
+  final left = total - pos;
+  return '-${fmtDur(left.isNegative ? Duration.zero : left)}';
+}
+
+/// Height of the viewer's bottom info panel while it shows (0 when hidden), so the player's controls sit
+/// above it instead of underneath.
+final viewerChromeInset = ValueNotifier<double>(0);
 
 /// Sources to try in order: HLS (has sound) or the resolved mp4, then the plain mp4, then Reddit's preview clip.
 Future<List<(String, bool)>> videoSources(MediaItem it) async {
@@ -271,13 +286,16 @@ class _VideoPageState extends State<VideoPage> {
               decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
               child: Text(flash!, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
             ),
-          IgnorePointer(
+          // Fills the page: the old Stack was only as big as the play button, which squeezed the control bar
+          // into a thin dark strip above it.
+          Positioned.fill(
+           child: IgnorePointer(
             ignoring: !ui,
             child: AnimatedOpacity(
               opacity: ui ? 1 : 0,
               duration: const Duration(milliseconds: 200),
-              child: Stack(alignment: Alignment.center, children: [
-                Material(
+              child: Stack(fit: StackFit.expand, children: [
+                Center(child: Material(
                   color: Colors.black45,
                   shape: const CircleBorder(),
                   child: IconButton(
@@ -293,19 +311,19 @@ class _VideoPageState extends State<VideoPage> {
                       }
                     },
                   ),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: full ? 8 : 56,
+                )),
+                ValueListenableBuilder(
+                  valueListenable: viewerChromeInset,
+                  builder: (_, inset, bar) => Positioned(left: 0, right: 0, bottom: full ? 8 : inset + 8, child: bar!),
                   child: Container(
+                    key: const Key('video-controls'),
                     padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black87, Colors.transparent]),
                     ),
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
                       Row(children: [
-                        Text(fmtDur(pos), style: const TextStyle(color: Colors.white, fontSize: 12)),
+                        Text(fmtDur(pos), style: const TextStyle(color: Colors.white, fontSize: 12, fontFeatures: [FontFeature.tabularFigures()])),
                         Expanded(
                           child: SliderTheme(
                             data: SliderTheme.of(context).copyWith(
@@ -333,7 +351,20 @@ class _VideoPageState extends State<VideoPage> {
                             ),
                           ),
                         ),
-                        Text(fmtDur(total), style: const TextStyle(color: Colors.white, fontSize: 12)),
+                        GestureDetector(
+                          key: const Key('video-end-label'),
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            VideoPrefs.showRemaining.value = !VideoPrefs.showRemaining.value;
+                            setState(() {});
+                            _autoHide();
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Text(endLabel(pos, total, remaining: VideoPrefs.showRemaining.value),
+                                style: const TextStyle(color: Colors.white, fontSize: 12, fontFeatures: [FontFeature.tabularFigures()])),
+                          ),
+                        ),
                       ]),
                       Row(children: [
                         _btn(VideoPrefs.muted.value ? Icons.volume_off : Icons.volume_up, () {
@@ -372,6 +403,7 @@ class _VideoPageState extends State<VideoPage> {
                 ),
               ]),
             ),
+           ),
           ),
         ]),
       ),
