@@ -19,6 +19,20 @@ void openAuthor(BuildContext context, String name) {
   openDeepSearch(user: name);
 }
 
+/// Open subreddit [sub] in Deep Search (no login), e.g. from the viewer. A user's own profile space (u_name)
+/// opens that user instead. Back returns to the Following list or subreddit results it was opened from.
+void openSubreddit(BuildContext context, String sub) {
+  final s = sub.trim().replaceFirst(cleanSub, '');
+  if (s.toLowerCase().startsWith('u_')) return openAuthor(context, s.substring(2));
+  if (!validSub.hasMatch(s)) return;
+  final cur = deepSource.value;
+  Navigator.of(context).popUntil((r) => r.isFirst);
+  openSubSearch(s);
+  rememberPrev(cur, deepSource.value ?? '');
+}
+
+bool canOpenSub(String s) => s.toLowerCase().startsWith('u_') ? canOpenAuthor(s.substring(2)) : validSub.hasMatch(s);
+
 bool canOpenAuthor(String n) => validName.hasMatch(n) && n != '[deleted]' && n.toLowerCase() != 'automoderator';
 
 ({MediaFilter m, DateTimeRange? d, String q, Set<dynamic> st})? _snap;
@@ -118,6 +132,52 @@ class AuthorChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Subreddit chip for the viewer: tap opens that subreddit's grid (or the user, for u_name).
+class SubChip extends StatelessWidget {
+  final String sub;
+  const SubChip(this.sub, {super.key});
+  @override
+  Widget build(BuildContext context) {
+    final ok = canOpenSub(sub);
+    return Material(
+      color: Colors.white.withValues(alpha: 0.16),
+      shape: const StadiumBorder(),
+      child: InkWell(
+        key: const Key('sub-chip'),
+        customBorder: const StadiumBorder(),
+        onTap: ok ? () => openSubreddit(context, sub) : null,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 4, 8, 4),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Flexible(
+              child: Text('r/$sub', maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12)),
+            ),
+            if (ok) const Icon(Icons.chevron_right, size: 16, color: Colors.white),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// Should grid tiles of [source] show where each post came from? Not inside a single subreddit, where every
+/// tile would name the same one; never for a user's own profile space (u_name).
+bool showTileSub(String source, String sub) =>
+    sub.isNotEmpty && !sub.toLowerCase().startsWith('u_') && !source.startsWith('r/') && !isSubSearch(source);
+
+/// Small "r/sub" line for grid tiles: where the post came from. Text only; tapping the tile opens the viewer.
+class TileSub extends StatelessWidget {
+  final String sub;
+  const TileSub(this.sub, {super.key});
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+        decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.45), borderRadius: BorderRadius.circular(8)),
+        child: Text('r/$sub', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70, fontSize: 8.5, fontWeight: FontWeight.w600)),
+      );
 }
 
 /// Small author label for grid tiles (tap opens the profile).

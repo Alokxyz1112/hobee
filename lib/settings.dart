@@ -7,6 +7,7 @@ import 'viewed.dart';
 import 'crash_log.dart';
 import 'player.dart';
 import 'screen_awake.dart';
+import 'app_lock_ui.dart';
 import 'clean.dart';
 import 'clean_image.dart';
 import 'package:flutter/material.dart';
@@ -276,6 +277,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (v) => VideoPrefs.startMuted.value = v,
           ),
         ),
+        const AppLockSettings(),
         ValueListenableBuilder(
           valueListenable: ScreenAwake.mode,
           builder: (_, m, _) => Column(children: [

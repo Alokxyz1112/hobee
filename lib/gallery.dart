@@ -569,8 +569,20 @@ class _GalleryScreenState extends State<GalleryScreen> {
                                   semanticLabel: e.post.title,
                                   frameBuilder: (_, child, frame, sync) => sync ? child : AnimatedOpacity(opacity: frame == null ? 0 : 1, duration: const Duration(milliseconds: 180), child: child),
                                   errorBuilder: (_, _, _) => Container(color: cs.surfaceContainerHighest, child: const Icon(Icons.broken_image))),
-                          if (deep) Positioned(left: 4, bottom: 4, child: StatusBadge(e.post)),
-                          if (!deep && e.index == 0) Positioned(left: 3, bottom: 3, right: 30, child: Align(alignment: Alignment.bottomLeft, child: TileAuthor(e.post.author))),
+                          // Bottom left: where the post came from (mixed feeds only), then the author or archive status.
+                          if (deep || e.index == 0)
+                            Positioned(
+                              left: deep ? 4 : 3,
+                              bottom: deep ? 4 : 3,
+                              right: 30,
+                              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                if (e.index == 0 && showTileSub(effectiveSource(), e.post.subreddit)) ...[
+                                  Flexible(child: TileSub(e.post.subreddit, key: const Key('tile-sub'))),
+                                  const SizedBox(height: 2),
+                                ],
+                                if (deep) StatusBadge(e.post) else Flexible(child: TileAuthor(e.post.author)),
+                              ]),
+                            ),
                           if (e.item.type != MediaType.image)
                             const Positioned(right: 4, top: 4, child: _Badge(Icons.play_arrow_rounded)),
                           if (e.post.media.length > 1)

@@ -99,6 +99,7 @@ class _DeepSearchScreenState extends State<DeepSearchScreen> {
   void _reset() {
     final s = deepSource.value;
     if (s != null && !isSubSearch(s) && backToSub()) return;
+    if (backToPrev()) return; // the Following list (or results) the chips opened this from
     subView.value = 0;
     clearFilters();
     resetSubOptions();
@@ -143,7 +144,7 @@ class _DeepSearchScreenState extends State<DeepSearchScreen> {
   Widget _subResults(String src) {
     final p = subParts(src);
     final title = 'r/${p.sub}${p.q.isEmpty ? '' : ' "${p.q}"'}';
-    final back = IconButton(icon: const Icon(Icons.arrow_back), tooltip: 'New subreddit search', onPressed: _reset);
+    final back = IconButton(icon: const Icon(Icons.arrow_back), tooltip: deepPrev.value != null ? 'Back' : 'New subreddit search', onPressed: _reset);
     return SubResultsPane(
       source: src,
       posts: PostsView(
