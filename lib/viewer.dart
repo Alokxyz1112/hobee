@@ -10,6 +10,7 @@ import 'download.dart';
 import 'filters.dart';
 import 'models.dart';
 import 'player.dart';
+import 'screen_awake.dart';
 import 'source_bar.dart';
 import 'sub_users.dart';
 
@@ -39,10 +40,36 @@ class _ViewerState extends State<Viewer> {
   late final PageController pc = PageController(initialPage: widget.start);
   late int cur = widget.start;
   bool chrome = true;
+  final _panelKey = GlobalKey();
+
+  /// Tell the video player how tall the bottom info panel is, so its controls sit above it.
+  void _reportPanel() {
+    final h = chrome ? (_panelKey.currentContext?.size?.height ?? 0.0) : 0.0;
+    if (viewerChromeInset.value != h) viewerChromeInset.value = h;
+  }
+
+  @override
+  void dispose() {
+    viewerZoomed.removeListener(_zoomChanged);
+    ScreenAwake.viewerClosed();
+    viewerChromeInset.value = 0;
+    viewerZoomed.value = false;
+    super.dispose();
+  }
+
+  void _zoomChanged() {
+    // Zoomed in: hide the panels so the picture isn't re-blurred behind them on every frame; for videos also
+    // stop the page swipe (pictures hand the swipe back to the pager at their edges themselves).
+    if (viewerZoomed.value && chrome) chrome = false;
+    if (mounted) setState(() {});
+  }
 
   @override
   void initState() {
     super.initState();
+    viewerZoomed.value = false;
+    viewerZoomed.addListener(_zoomChanged);
+    ScreenAwake.viewerOpened();
     markRead(widget.entries[widget.start].post.id);
     Interest.opened(widget.entries[widget.start].post);
     WidgetsBinding.instance.addPostFrameCallback((_) => _prefetch(widget.start));
@@ -89,6 +116,9 @@ class _ViewerState extends State<Viewer> {
   @override
   Widget build(BuildContext context) {
     final e = widget.entries[cur];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _reportPanel();
+    });
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
@@ -112,10 +142,15 @@ class _ViewerState extends State<Viewer> {
       body: GestureDetector(
         onTap: () => setState(() => chrome = !chrome),
         child: Stack(children: [
-          PageView.builder(
+          // The scope lets a zoomed picture pan to its edge before the pager takes the swipe, instead of
+          // both fighting over every move (the sluggish zoom).
+          PhotoViewGestureDetectorScope(
+           axis: Axis.horizontal,
+           child: PageView.builder(
             controller: pc,
+            physics: viewerZoomed.value && e.item.type == MediaType.video ? const NeverScrollableScrollPhysics() : null,
             itemCount: widget.entries.length,
-            onPageChanged: (i) { markRead(widget.entries[i].post.id); if (widget.entries[i].post.id != widget.entries[cur].post.id) Interest.opened(widget.entries[i].post); setState(() => cur = i); _prefetch(i); },
+            onPageChanged: (i) { viewerZoomed.value = false; markRead(widget.entries[i].post.id); if (widget.entries[i].post.id != widget.entries[cur].post.id) Interest.opened(widget.entries[i].post); setState(() => cur = i); _prefetch(i); },
             itemBuilder: (_, i) {
               final it = widget.entries[i].item;
               if (it.type == MediaType.video) return VideoPage(item: it, active: i == cur);
@@ -132,11 +167,13 @@ class _ViewerState extends State<Viewer> {
               return _photo(it.full, it);
             },
           ),
+          ),
 
           if (chrome)
             Positioned(
               left: 0, right: 0, bottom: 0,
               child: Glass(
+                key: _panelKey,
                 fill: Colors.black.withValues(alpha: 0.35),
                 border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.15))),
                 child: Padding(
@@ -366,6 +403,7 @@ class PhotoFallbackState extends State<PhotoFallback> {
             imageProvider: p,
             minScale: PhotoViewComputedScale.contained,
             maxScale: PhotoViewComputedScale.covered * 4,
+            scaleStateChangedCallback: (s) => viewerZoomed.value = s != PhotoViewScaleState.initial,
             backgroundDecoration: const BoxDecoration(color: Colors.black),
             loadingBuilder: (_, _) => const SizedBox.shrink(),
             errorBuilder: (_, _, _) => const SizedBox.shrink(), // failures are handled by _watch
@@ -374,7 +412,18 @@ class PhotoFallbackState extends State<PhotoFallback> {
         if (!loaded)
           ph == null
               ? const Center(child: CircularProgressIndicator())
-              : const Align(alignment: Alignment.bottomCenter, child: LinearProgressIndicator(minHeight: 2)),
+              // Full image still loading over the thumbnail: a small spinner in the top-right corner, under the
+              // title bar, where it doesn't cover the picture.
+              : Positioned(
+                  top: MediaQuery.paddingOf(context).top + kToolbarHeight + 12,
+                  right: 12,
+                  child: Container(
+                    key: const Key('full-loading'),
+                    padding: const EdgeInsets.all(6),
+                    decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+                    child: const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70)),
+                  ),
+                ),
       ]),
     );
   }

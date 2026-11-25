@@ -8,6 +8,7 @@ import 'glass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'accounts.dart';
 import 'player.dart';
+import 'screen_awake.dart';
 import 'archive.dart';
 import 'public_sources.dart';
 import 'auth.dart';
@@ -58,6 +59,7 @@ Future<void> _main() async {
   // Older builds saved suggestion filter choices; they are gone now, so drop the key.
   await _safe('suggest', () async => sp.remove('suggestPrefs'));
   await _safe('video', VideoPrefs.load);
+  await _safe('awake', ScreenAwake.load);
   await _safe('auth', Auth.i.init);
   // Thumbs are decoded at display size (cacheWidth); the extra room holds the viewer's prefetched originals
   // (decoded up to 4096 px, Phase 2), which a 120 MB cache evicted before they were shown.
@@ -115,6 +117,12 @@ class HobeeApp extends StatelessWidget {
           darkTheme: _theme(Brightness.dark),
           themeMode: m,
           home: const Home(),
+          // Every touch restarts the keep-screen-on idle limit.
+          builder: (_, child) => Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (_) => ScreenAwake.touched(),
+            child: child,
+          ),
         ),
       );
 }

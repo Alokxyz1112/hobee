@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 import 'embeds.dart';
 import 'models.dart';
+import 'screen_awake.dart';
 
 /// Player settings, saved.
 class VideoPrefs {
@@ -13,6 +13,8 @@ class VideoPrefs {
   static final muted = ValueNotifier<bool>(false);
   static final loop = ValueNotifier<bool>(true);
   static final speed = ValueNotifier<double>(1);
+  /// Right-hand time label: true shows time left (-1:23), false the total length. Tap it to switch.
+  static final showRemaining = ValueNotifier<bool>(true);
   static final _pos = <String, int>{};
   static SharedPreferences? _sp;
 
@@ -22,6 +24,8 @@ class VideoPrefs {
     muted.value = sp.getBool('videoMuted') ?? startMuted.value;
     loop.value = sp.getBool('videoLoop') ?? true;
     speed.value = sp.getDouble('videoSpeed') ?? 1;
+    showRemaining.value = sp.getBool('videoRemaining') ?? true;
+    showRemaining.addListener(() => sp.setBool('videoRemaining', showRemaining.value));
     startMuted.addListener(() {
       sp.setBool('startMuted', startMuted.value);
       muted.value = startMuted.value;
@@ -55,6 +59,21 @@ String fmtDur(Duration d) {
   return h > 0 ? '$h:${two(m)}:${two(ss)}' : '$m:${two(ss)}';
 }
 
+/// Right-hand player label: time left ("-1:23") or the total length.
+String endLabel(Duration pos, Duration total, {required bool remaining}) {
+  if (!remaining) return fmtDur(total);
+  final left = total - pos;
+  return '-${fmtDur(left.isNegative ? Duration.zero : left)}';
+}
+
+/// Height of the viewer's bottom info panel while it shows (0 when hidden), so the player's controls sit
+/// above it instead of underneath.
+final viewerChromeInset = ValueNotifier<double>(0);
+
+/// True while the current image or video is zoomed in. The viewer hides its blurred panels then (they had
+/// to re-blur on every zoom frame) and, for videos, stops swiping to the next item until you zoom out.
+final viewerZoomed = ValueNotifier<bool>(false);
+
 /// Sources to try in order: HLS (has sound) or the resolved mp4, then the plain mp4, then Reddit's preview clip.
 Future<List<(String, bool)>> videoSources(MediaItem it) async {
   final out = <(String, bool)>[];
@@ -83,6 +102,22 @@ class _VideoPageState extends State<VideoPage> {
   Timer? hide;
   String? flash; // "-10s" / "+10s"
   Timer? flashT;
+  final _zoom = TransformationController();
+  bool zoomed = false;
+
+  /// Pinch zoom: one finger pans only while zoomed in, so a plain swipe still goes to the next item.
+  void _zoomEnd(ScaleEndDetails _) {
+    final z = _zoom.value.getMaxScaleOnAxis() > 1.01;
+    if (z == zoomed) return;
+    setState(() => zoomed = z);
+    if (widget.active) viewerZoomed.value = z;
+  }
+
+  void _resetZoom() {
+    _zoom.value = Matrix4.identity();
+    if (zoomed) setState(() => zoomed = false);
+    if (widget.active) viewerZoomed.value = false;
+  }
 
   @override
   void initState() {
@@ -110,7 +145,7 @@ class _VideoPageState extends State<VideoPage> {
     v.removeListener(_tick);
     v.dispose();
     c = null;
-    if (_wasPlaying) WakelockPlus.disable();
+    if (_wasPlaying) ScreenAwake.videoPlaying(false);
     _wasPlaying = false;
   }
 
@@ -147,7 +182,7 @@ class _VideoPageState extends State<VideoPage> {
     final v = c!.value;
     if (v.isPlaying != _wasPlaying) {
       _wasPlaying = v.isPlaying;
-      v.isPlaying ? WakelockPlus.enable() : WakelockPlus.disable();
+      ScreenAwake.videoPlaying(v.isPlaying);
     }
     final now = DateTime.now();
     if (v.isInitialized && now.difference(_lastSave).inSeconds >= 5) {
@@ -221,6 +256,8 @@ class _VideoPageState extends State<VideoPage> {
         _exitFull();
       }
       _release(); // free the decoder as soon as you swipe away
+      _zoom.value = Matrix4.identity();
+      zoomed = false;
       if (mounted) setState(() {});
     }
   }
@@ -229,8 +266,8 @@ class _VideoPageState extends State<VideoPage> {
   void dispose() {
     hide?.cancel();
     flashT?.cancel();
+    _zoom.dispose();
     _release();
-    WakelockPlus.disable();
     if (full) _exitFull();
     super.dispose();
   }
@@ -258,12 +295,23 @@ class _VideoPageState extends State<VideoPage> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: _toggleUi,
-      onDoubleTapDown: (d) => _skip(d.localPosition.dx < w / 2 ? -10 : 10),
+      // Double tap: zoomed in → back to normal size; otherwise skip 10 s back (left half) or ahead (right half).
+      onDoubleTapDown: (d) => zoomed ? _resetZoom() : _skip(d.localPosition.dx < w / 2 ? -10 : 10),
       onDoubleTap: () {},
       child: Container(
         color: Colors.black,
         child: Stack(alignment: Alignment.center, children: [
-          Center(child: AspectRatio(aspectRatio: val.aspectRatio, child: VideoPlayer(v))),
+          Positioned.fill(
+            child: InteractiveViewer(
+              key: const Key('video-zoom'),
+              transformationController: _zoom,
+              minScale: 1,
+              maxScale: 4,
+              panEnabled: zoomed,
+              onInteractionEnd: _zoomEnd,
+              child: Center(child: AspectRatio(aspectRatio: val.aspectRatio, child: VideoPlayer(v))),
+            ),
+          ),
           if (val.isBuffering) const CircularProgressIndicator(color: Colors.white70),
           if (flash != null)
             Container(
@@ -271,13 +319,16 @@ class _VideoPageState extends State<VideoPage> {
               decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
               child: Text(flash!, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
             ),
-          IgnorePointer(
+          // Fills the page: the old Stack was only as big as the play button, which squeezed the control bar
+          // into a thin dark strip above it.
+          Positioned.fill(
+           child: IgnorePointer(
             ignoring: !ui,
             child: AnimatedOpacity(
               opacity: ui ? 1 : 0,
               duration: const Duration(milliseconds: 200),
-              child: Stack(alignment: Alignment.center, children: [
-                Material(
+              child: Stack(fit: StackFit.expand, children: [
+                Center(child: Material(
                   color: Colors.black45,
                   shape: const CircleBorder(),
                   child: IconButton(
@@ -293,19 +344,19 @@ class _VideoPageState extends State<VideoPage> {
                       }
                     },
                   ),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: full ? 8 : 56,
+                )),
+                ValueListenableBuilder(
+                  valueListenable: viewerChromeInset,
+                  builder: (_, inset, bar) => Positioned(left: 0, right: 0, bottom: full ? 8 : inset + 8, child: bar!),
                   child: Container(
+                    key: const Key('video-controls'),
                     padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black87, Colors.transparent]),
                     ),
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
                       Row(children: [
-                        Text(fmtDur(pos), style: const TextStyle(color: Colors.white, fontSize: 12)),
+                        Text(fmtDur(pos), style: const TextStyle(color: Colors.white, fontSize: 12, fontFeatures: [FontFeature.tabularFigures()])),
                         Expanded(
                           child: SliderTheme(
                             data: SliderTheme.of(context).copyWith(
@@ -333,7 +384,20 @@ class _VideoPageState extends State<VideoPage> {
                             ),
                           ),
                         ),
-                        Text(fmtDur(total), style: const TextStyle(color: Colors.white, fontSize: 12)),
+                        GestureDetector(
+                          key: const Key('video-end-label'),
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            VideoPrefs.showRemaining.value = !VideoPrefs.showRemaining.value;
+                            setState(() {});
+                            _autoHide();
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Text(endLabel(pos, total, remaining: VideoPrefs.showRemaining.value),
+                                style: const TextStyle(color: Colors.white, fontSize: 12, fontFeatures: [FontFeature.tabularFigures()])),
+                          ),
+                        ),
                       ]),
                       Row(children: [
                         _btn(VideoPrefs.muted.value ? Icons.volume_off : Icons.volume_up, () {
@@ -372,6 +436,7 @@ class _VideoPageState extends State<VideoPage> {
                 ),
               ]),
             ),
+           ),
           ),
         ]),
       ),

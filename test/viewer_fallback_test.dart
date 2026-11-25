@@ -47,8 +47,12 @@ void main() {
     await t.pumpWidget(MaterialApp(home: PhotoFallback(key: k, urls: const ['https://a/orig.jpg'], placeholder: thumb, providerFor: (_, _) => slow)));
     await t.pump(const Duration(milliseconds: 50));
     expect(find.byWidgetPredicate((w) => w is Image && w.image == thumb), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsNothing, reason: 'no big spinner when a thumbnail is shown');
-    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget, reason: 'only the small corner spinner');
+    expect(find.byKey(const Key('full-loading')), findsOneWidget);
+    final box = t.getRect(find.byKey(const Key('full-loading')));
+    final screen = t.getRect(find.byType(PhotoFallback));
+    expect(box.right, greaterThan(screen.width - 60), reason: 'right edge');
+    expect(box.top, lessThan(screen.height / 4), reason: 'top, under the title bar');
     expect(k.currentState!.loaded, isFalse);
     expect(t.widget<AnimatedOpacity>(find.byKey(const Key('full-fade'))).opacity, 0);
 
@@ -58,7 +62,7 @@ void main() {
     await t.pump(const Duration(milliseconds: 250));
     expect(k.currentState!.loaded, isTrue);
     expect(t.widget<AnimatedOpacity>(find.byKey(const Key('full-fade'))).opacity, 1);
-    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(find.byKey(const Key('full-loading')), findsNothing);
   });
 
   testWidgets('original fails -> stays on the thumbnail quietly, no error screen', (t) async {
