@@ -16,6 +16,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     deepSource.value = 'fol:1';
     deepReturn.value = null;
+    deepPrev.value = null;
     mainTab.value = 0;
   });
 
@@ -39,8 +40,12 @@ void main() {
     await t.pumpAndSettle();
     expect(deepSource.value, subKey('CosplayGirlsNSFW'));
     expect(mainTab.value, 1);
-    expect(deepReturn.value, 'fol:1');
+    expect(deepPrev.value, 'fol:1');
+    expect(deepReturn.value, isNull, reason: 'the subreddit-results slot stays free');
     expect(find.text('open'), findsOneWidget, reason: 'the viewer page closed');
+    expect(backToPrev(), isTrue);
+    expect(deepSource.value, 'fol:1', reason: 'Back returns to the Following list');
+    expect(deepPrev.value, isNull);
   });
 
   testWidgets("a user's profile space (u_name) opens the user", (t) async {
@@ -48,7 +53,8 @@ void main() {
     await t.tap(find.byKey(const Key('sub-chip')));
     await t.pumpAndSettle();
     expect(deepSource.value, 'deep:asphyxiangel');
-    expect(deepReturn.value, 'fol:1', reason: 'Back returns to the Following list');
+    expect(deepReturn.value, isNull);
+    expect(deepPrev.value, 'fol:1', reason: 'Back returns to the Following list');
   });
 
   testWidgets('an invalid name does nothing', (t) async {

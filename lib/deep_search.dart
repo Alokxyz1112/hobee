@@ -99,6 +99,7 @@ class _DeepSearchScreenState extends State<DeepSearchScreen> {
   void _reset() {
     final s = deepSource.value;
     if (s != null && !isSubSearch(s) && backToSub()) return;
+    if (backToPrev()) return; // the Following list (or results) the chips opened this from
     subView.value = 0;
     clearFilters();
     resetSubOptions();

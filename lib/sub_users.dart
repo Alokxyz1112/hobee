@@ -28,7 +28,7 @@ void openSubreddit(BuildContext context, String sub) {
   final cur = deepSource.value;
   Navigator.of(context).popUntil((r) => r.isFirst);
   openSubSearch(s);
-  if (cur != null && (cur.startsWith('fol:') || cur.startsWith('sr:')) && cur != deepSource.value) deepReturn.value = cur;
+  rememberPrev(cur, deepSource.value ?? '');
 }
 
 bool canOpenSub(String s) => s.toLowerCase().startsWith('u_') ? canOpenAuthor(s.substring(2)) : validSub.hasMatch(s);

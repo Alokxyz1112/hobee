@@ -14,6 +14,7 @@ Future<void> openFollowing([int? profile]) async {
   if (!await AppLock.allowProfile(id, name)) return;
   await FollowStore.setActive(id);
   deepReturn.value = null;
+  deepPrev.value = null;
   deepSource.value = followingKey(id);
   mainTab.value = 1;
 }
