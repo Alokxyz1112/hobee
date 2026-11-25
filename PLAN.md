@@ -94,6 +94,10 @@ Today: `lib/download.dart` saves straight to public `Pictures/` / `Movies/` via 
 - `webview_flutter`: log in on Reddit's own page and show the real feed.
 - Optional hybrid: read post data from the loaded page and show it in Hobee's grid.
 - Fragile: breaks when Reddit changes its site. Keep the page-reading rules in one file, with fallback to the plain page.
+- **Your own session cookie:** the main reason for this phase. You type your Reddit username and password yourself on Reddit's own login page in the WebView; Hobees never sees or stores the password. It keeps only the session cookie Reddit sets, in secure storage (covered by the Phase 5 app lock), with a Log out that deletes it.
+- **Honest requests:** calls made with that cookie identify as Hobees (same User-Agent as today), never as a browser; no disguising requests (CLAUDE.md).
+- **Opt-in with a warning:** Reddit intends apps to use its official API login, so a website session in an app may break when Reddit changes its site, and could get the account flagged. Show this before the first login. The no-login path (Following, Deep Search) stays the default and the fallback when the session fails.
+- Tests: cookie stored/cleared, requests carry the cookie and the Hobees User-Agent, fallback to no-login on 401/403.
 
 ## Phase 8 – Secure path through SecuRDP (proxy)
 Needs the SecuRDP side first (planned in that project): an opt-in "Internet proxy" hub service reached through an App link at `127.0.0.1:<port>` on the phone, a standard HTTP proxy (CONNECT for HTTPS), app-link key accepted as `Proxy-Authorization: Basic`, 502/503 when the path is down, and a health check.
