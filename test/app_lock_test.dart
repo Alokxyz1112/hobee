@@ -157,8 +157,8 @@ void main() {
       await AppLock.unlockWithDevice();
       expect(await g, isTrue);
       expect(await AppLock.allowProfile(2, 'cscott0108b'), isTrue, reason: 'already unlocked');
-      AppLock.lock();
-      await AppLock.unlockWithDevice();
+      AppLock.lock(); // the app locked again (or was closed): lists are closed again
+      AppLock.locked.value = false; // app lock off: nothing covers the app itself
       final h = AppLock.allowProfile(2, 'cscott0108b');
       expect(AppLock.locked.value, isTrue, reason: 'asks again after the app locked');
       AppLock.cancel();
