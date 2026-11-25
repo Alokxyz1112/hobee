@@ -165,6 +165,28 @@ void main() {
       expect(await h, isFalse);
     });
 
+    test('unlocking the app also opens the locked lists; a list unlock opens only that list', () async {
+      AppLock.lockedProfiles.value = {2, 3};
+      AppLock.enabled.value = true;
+      AppLock.lock();
+      await AppLock.unlockWithDevice();
+      asked.clear();
+      expect(await AppLock.allowProfile(2, 'cscott0108b'), isTrue);
+      expect(await AppLock.allowProfile(3, 'cscott0108'), isTrue);
+      expect(asked, isEmpty, reason: 'no second prompt after the app unlock');
+
+      AppLock.enabled.value = false;
+      AppLock.lock(); // e.g. the app was closed: lists locked again
+      AppLock.locked.value = false; // app lock off: nothing covers the app
+      final f = AppLock.allowProfile(2, 'cscott0108b');
+      await AppLock.unlockWithDevice();
+      expect(await f, isTrue);
+      final g = AppLock.allowProfile(3, 'cscott0108');
+      expect(AppLock.locked.value, isTrue, reason: 'the other list still asks');
+      AppLock.cancel();
+      expect(await g, isFalse);
+    });
+
     test('the app lock itself cannot be cancelled', () {
       AppLock.lock();
       AppLock.cancel();

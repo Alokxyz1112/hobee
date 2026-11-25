@@ -79,6 +79,7 @@ class AppLock {
   static bool cancellable = false;
 
   static DateTime? _leftAt;
+  static bool _appLock = false; // the lock showing is the whole-app lock (not a list or a settings change)
   static final _openProfiles = <int>{};
   static Completer<bool>? _pending;
   static int _wrong = 0;
@@ -152,6 +153,7 @@ class AppLock {
     _openProfiles.clear();
     reason = 'Unlock Hobees';
     cancellable = false;
+    _appLock = true;
     locked.value = true;
   }
 
@@ -173,6 +175,7 @@ class AppLock {
     if (p != null && lockedProfiles.value.contains(p)) {
       reason = 'Unlock this list';
       cancellable = false;
+      _appLock = false;
       locked.value = true;
     }
   }
@@ -215,6 +218,9 @@ class AppLock {
   static void _unlocked() {
     final p = viewingProfile();
     if (p != null) _openProfiles.add(p);
+    // Unlocking the whole app also opens the locked lists until the next lock (no second prompt).
+    if (_appLock) _openProfiles.addAll(lockedProfiles.value);
+    _appLock = false;
     locked.value = false;
     final c = _pending;
     _pending = null;
@@ -236,6 +242,7 @@ class AppLock {
     final c = _pending = Completer<bool>();
     reason = why;
     cancellable = true;
+    _appLock = false;
     locked.value = true;
     return c.future;
   }
@@ -269,6 +276,7 @@ class AppLock {
     reason = 'Unlock Hobees';
     cancellable = false;
     _leftAt = null;
+    _appLock = false;
     _openProfiles.clear();
     _pending = null;
     _wrong = 0;
