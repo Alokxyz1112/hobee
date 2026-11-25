@@ -87,7 +87,7 @@ class AppLock {
   // Test seams.
   @visibleForTesting
   static Future<bool> Function(String reason) deviceAuth = _deviceAuth;
-  @visibleForTesting
+  /// Has the phone a screen lock / biometrics the unlock can use? (replaceable in tests)
   static Future<bool> Function() deviceSupported = _deviceSupported;
   @visibleForTesting
   static PinStore pinStore = PinStore();

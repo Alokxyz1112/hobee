@@ -340,6 +340,7 @@ class _LockedListsScreenState extends State<LockedListsScreen> {
     final s = {...AppLock.lockedProfiles.value};
     if (lock) {
       if (!await AppLock.canUnlock()) {
+        if (!mounted) return;
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
             const SnackBar(content: Text('Set a screen lock on the phone, or an app PIN in Settings, first.')));
         return;
