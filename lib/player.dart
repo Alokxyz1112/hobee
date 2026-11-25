@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import 'embeds.dart';
 import 'models.dart';
+import 'saved.dart';
 import 'screen_awake.dart';
 
 /// Player settings, saved.
@@ -76,6 +78,7 @@ final viewerZoomed = ValueNotifier<bool>(false);
 
 /// Sources to try in order: HLS (has sound) or the resolved mp4, then the plain mp4, then Reddit's preview clip.
 Future<List<(String, bool)>> videoSources(MediaItem it) async {
+  if (isLocalPath(it.url)) return [(it.url, false)]; // a saved file (Hobees gallery)
   final out = <(String, bool)>[];
   final hls = it.hls ?? Embeds.redditHls(it.url);
   if (hls != null) out.add((hls, true));
@@ -153,8 +156,10 @@ class _VideoPageState extends State<VideoPage> {
     final srcs = await videoSources(widget.item);
     Object? last;
     for (final (u, hls) in srcs) {
-      final ctrl = VideoPlayerController.networkUrl(Uri.parse(u),
-          formatHint: hls ? VideoFormat.hls : null, httpHeaders: const {'User-Agent': Embeds.ua});
+      final ctrl = isLocalPath(u)
+          ? VideoPlayerController.file(File(u))
+          : VideoPlayerController.networkUrl(Uri.parse(u),
+              formatHint: hls ? VideoFormat.hls : null, httpHeaders: const {'User-Agent': Embeds.ua});
       try {
         await ctrl.initialize();
         await ctrl.setLooping(VideoPrefs.loop.value);

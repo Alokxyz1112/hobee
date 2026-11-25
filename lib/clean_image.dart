@@ -120,6 +120,10 @@ String? redditOriginalOf(String u) {
 List<String> withRedditOriginals(Iterable<String> urls) {
   final out = <String>{};
   for (final u in urls) {
+    if (u.startsWith('/')) {
+      out.add(u); // a saved file on the phone (Hobees gallery)
+      continue;
+    }
     if (!u.startsWith('http')) continue;
     out.add(u);
     final o = redditOriginalOf(u);
