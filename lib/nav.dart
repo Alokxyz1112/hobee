@@ -27,9 +27,10 @@ void openDeepSearch({String? user, String? sub}) {
   if (user != null && validName.hasMatch(user)) {
     final s = (sub ?? '').trim();
     final cur = deepSource.value;
-    if (cur != null && cur.startsWith('sr:')) {
+    if (cur != null && (cur.startsWith('sr:') || cur.startsWith('fol:'))) {
+      // Back returns to the subreddit results or Following list the profile was opened from.
       deepReturn.value = cur;
-      onLeaveSub?.call(user);
+      if (cur.startsWith('sr:')) onLeaveSub?.call(user);
     }
     deepSource.value = 'deep:$user${s.isEmpty ? '' : '@$s'}';
     Recents.add(Recents.deep, deepSource.value!.substring(5));

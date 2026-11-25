@@ -181,9 +181,13 @@ class _ViewerState extends State<Viewer> {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
                   AuthorChip(e.post.author),
                   const SizedBox(height: 6),
-                  Text('r/${e.post.subreddit} • ${e.post.date.toLocal().toString().substring(0, 10)}'
-                      '${e.post.media.length > 1 ? '  •  ${e.index + 1}/${e.post.media.length}' : ''}',
-                      style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                  Row(children: [
+                    Flexible(child: SubChip(e.post.subreddit)),
+                    const SizedBox(width: 8),
+                    Text('${e.post.date.toLocal().toString().substring(0, 10)}'
+                        '${e.post.media.length > 1 ? '  •  ${e.index + 1}/${e.post.media.length}' : ''}',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                  ]),
                 ]),
               )),
             ),
