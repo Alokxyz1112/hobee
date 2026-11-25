@@ -63,4 +63,29 @@ void main() {
     final a = Post.fromJson(d)!, b = Post.fromJson(s)!;
     expect(b.media.map((m) => m.url), a.media.map((m) => m.url));
   });
+
+  test('loadPage pages newest first without gaps or repeats, ties included', () async {
+    await Db.savePosts('src', [post('a', 5), post('b', 9), post('c', 5), post('d', 7), post('e', 5), post('f', 1)]);
+    await Db.savePosts('other', [post('x', 100)]);
+    final seen = <String>[];
+    var page = await Db.loadPage('src', limit: 2);
+    while (page.isNotEmpty) {
+      seen.addAll(page.map((p) => p.id));
+      page = await Db.loadPage('src', limit: 2, created: page.last.created, id: page.last.id);
+    }
+    expect(seen, ['b', 'd', 'e', 'c', 'a', 'f']);
+  });
+
+  test('window plan: small feeds whole, big ones 1000 at a time, search reads all', () {
+    (WindowRead, int) plan(int count, {int shown = 0, bool same = false, bool needAll = false, bool grow = false}) =>
+        Db.windowRead(count: count, shown: shown, sameWindow: same, needAll: needAll, grow: grow);
+    Db.windowMin = 2000;
+    Db.windowStep = 1000;
+    expect(plan(1500), (WindowRead.all, 0));
+    expect(plan(28000), (WindowRead.window, 1000), reason: 'opening a big feed');
+    expect(plan(28000, shown: 3000, same: true), (WindowRead.window, 3000), reason: 'a reload keeps the window size');
+    expect(plan(28000, shown: 3000, same: false), (WindowRead.window, 1000), reason: 'another feed starts small');
+    expect(plan(28000, shown: 1000, same: true, grow: true), (WindowRead.next, 1000), reason: 'scrolling near the end');
+    expect(plan(28000, shown: 1000, same: true, needAll: true), (WindowRead.all, 0), reason: 'search / date range');
+  });
 }

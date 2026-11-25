@@ -119,5 +119,9 @@ void main() {
     openDeepSearch();
     await t.pump(const Duration(milliseconds: 300));
     expect(t.takeException(), isNull);
+    // Let loads still in flight (the grid's 2-minute fetch timeout, database locks) finish before the test ends.
+    await t.pumpWidget(const SizedBox());
+    await t.pump(const Duration(minutes: 3));
+    expect(t.takeException(), isNull);
   });
 }
