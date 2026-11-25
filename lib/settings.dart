@@ -10,6 +10,7 @@ import 'screen_awake.dart';
 import 'app_lock_ui.dart';
 import 'clean.dart';
 import 'clean_image.dart';
+import 'saved.dart';
 import 'package:flutter/material.dart';
 import 'glass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -336,6 +337,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: const Text('Reddit squashes pictures. This smooths out the blocky patches and bleeding reds in the viewer and in saved pictures, without touching real detail.'),
             value: on,
             onChanged: (v) => cleanJpegs.value = v,
+          ),
+        ),
+        ValueListenableBuilder(
+          valueListenable: saveTo,
+          builder: (_, to, _) => ListTile(
+            key: const Key('save-to'),
+            title: const Text('Save downloads to'),
+            subtitle: Text(to == SaveTo.hobees
+                ? 'Private: only Hobees can see them. Uninstalling Hobees or clearing its data deletes them, so export what you want to keep.'
+                : 'Pictures / Movies, so they show in the phone's gallery app.'),
+            trailing: DropdownButton<SaveTo>(
+              value: to,
+              items: const [
+                DropdownMenuItem(value: SaveTo.hobees, child: Text('Hobees gallery')),
+                DropdownMenuItem(value: SaveTo.phone, child: Text('Phone gallery')),
+              ],
+              onChanged: (v) => saveTo.value = v ?? SaveTo.hobees,
+            ),
           ),
         ),
         ValueListenableBuilder(

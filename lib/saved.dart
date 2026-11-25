@@ -47,6 +47,11 @@ class SavedItem {
       );
 }
 
+/// Where downloads go: the private Hobees gallery (default) or the phone's gallery (Pictures / Movies).
+enum SaveTo { hobees, phone }
+
+final saveTo = ValueNotifier<SaveTo>(SaveTo.hobees);
+
 /// True for a file path on the phone (saved gallery items) rather than a web address.
 bool isLocalPath(String u) => u.startsWith('/');
 

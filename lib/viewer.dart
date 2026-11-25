@@ -8,8 +8,10 @@ import 'archive_ui.dart';
 import 'clean_image.dart';
 import 'download.dart';
 import 'filters.dart';
+import 'following.dart';
 import 'models.dart';
 import 'player.dart';
+import 'saved.dart';
 import 'screen_awake.dart';
 import 'source_bar.dart';
 import 'sub_users.dart';
@@ -83,14 +85,14 @@ class _ViewerState extends State<Viewer> {
     var ok = 0;
     for (final it in items) {
       try {
-        await Downloader.save(it, 'hobee_${e.post.id}');
+        await Downloader.save(it, e.post, profile: followingProfile(effectiveSource()));
         ok++;
         if (ok == 1) Interest.downloaded(e.post);
       } catch (err) {
         m.showSnackBar(SnackBar(content: Text('Failed: $err')));
       }
     }
-    m.showSnackBar(SnackBar(content: Text('Saved $ok/${items.length} to Pictures')));
+    m.showSnackBar(SnackBar(content: Text('Saved $ok/${items.length} to ${saveTo.value == SaveTo.phone ? 'the phone gallery' : 'Hobees gallery'}')));
   }
 
   Widget _photo(String url, MediaItem it) => PhotoFallback(
@@ -129,7 +131,6 @@ class _ViewerState extends State<Viewer> {
               foregroundColor: Colors.white,
               title: Text(e.post.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
               actions: [
-                if (e.item.type == MediaType.image)
                 IconButton(icon: const Icon(Icons.download), tooltip: 'Download', onPressed: () => _download()),
                 if (e.post.media.length > 1)
                   IconButton(icon: const Icon(Icons.download_for_offline), tooltip: 'Download all', onPressed: () => _download(all: true)),

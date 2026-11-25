@@ -8,6 +8,7 @@ import 'clean.dart';
 import 'clean_image.dart';
 import 'embeds.dart';
 import 'models.dart';
+import 'saved.dart';
 
 const _ch = MethodChannel('hobee/media');
 
@@ -52,10 +53,46 @@ class Downloader {
     return o;
   }
 
-  /// Downloads one media item and saves it to Pictures or Movies with a plain timestamp name.
-  /// [baseName] is no longer used for the file name, so nothing names the source.
-  static Future<String> save(MediaItem m, String baseName) async {
-    await _perm();
+  /// Downloads one media item and saves it where Settings → Save to says: the private Hobees gallery
+  /// (default) or the phone's Pictures / Movies with a plain timestamp name. Nothing names the source.
+  static Future<String> save(MediaItem m, Post post, {int? profile}) async {
+    final (file, ext, mime, video) = await _prepare(m);
+    return store(file, ext: ext, mime: mime, video: video, item: m, post: post, profile: profile);
+  }
+
+  /// Puts a downloaded, cleaned file in its destination. Returns the saved path or MediaStore uri.
+  static Future<String> store(File f,
+      {required String ext, required String mime, required bool video, required MediaItem item, required Post post, int? profile}) async {
+    if (saveTo.value == SaveTo.phone) {
+      await _perm();
+      final name = timestampName(DateTime.now(), ext);
+      final r = await _ch.invokeMethod<String>('save', {'path': f.path, 'name': name, 'mime': mime, 'video': video});
+      return r ?? name;
+    }
+    final dest = await SavedStore.newFile(ext);
+    await f.copy(dest.path);
+    String? thumb;
+    if (video && item.thumb.startsWith('http')) {
+      // A small still for the gallery grid; the video plays from its own file.
+      try {
+        final r = await http.get(Uri.parse(item.thumb), headers: {'User-Agent': 'android:io.github.cscott0108.hobees:v1.0'}).timeout(const Duration(seconds: 20));
+        if (r.statusCode == 200) {
+          final t = await SavedStore.newFile('jpg', suffix: '_t');
+          await t.writeAsBytes(stripMetadata(r.bodyBytes));
+          thumb = t.path;
+        }
+      } catch (_) {}
+    }
+    await SavedStore.add(SavedItem(
+      path: dest.path, kind: video ? 'video' : 'image', thumb: thumb, width: item.width, height: item.height, duration: item.duration,
+      postId: post.id, title: post.title, subreddit: post.subreddit, author: post.author, permalink: post.permalink,
+      created: post.created, profile: profile, savedAt: DateTime.now().millisecondsSinceEpoch,
+    ));
+    return dest.path;
+  }
+
+  /// Downloads (and for pictures cleans) one media item into a temp file: (file, ext, mime, isVideo).
+  static Future<(File, String, String, bool)> _prepare(MediaItem m) async {
     final ts = DateTime.now().millisecondsSinceEpoch;
     if (m.type == MediaType.video) {
       final best = m.redditVideo ? await _bestDash(m.url) : null;
@@ -88,9 +125,7 @@ class Downloader {
           }
         }
       }
-      final name = timestampName(DateTime.now(), 'mp4');
-      final r = await _ch.invokeMethod<String>('save', {'path': out.path, 'name': name, 'mime': 'video/mp4', 'video': true});
-      return r ?? name;
+      return (out, 'mp4', 'video/mp4', true);
     } else {
       // Original upload first (Settings → Original quality), then the preview copy if the original fails.
       var src = m.full;
@@ -117,10 +152,9 @@ class Downloader {
           }
         }
       }
-      final name = timestampName(DateTime.now(), ext == 'jpeg' ? 'jpg' : ext);
+      if (ext == 'jpeg') ext = 'jpg';
       f = await _clean(f);
-      final r = await _ch.invokeMethod<String>('save', {'path': f.path, 'name': name, 'mime': _mime(ext), 'video': false});
-      return r ?? name;
+      return (f, ext, _mime(ext), false);
     }
   }
 

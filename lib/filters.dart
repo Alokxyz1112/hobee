@@ -19,6 +19,7 @@ import 'models.dart';
 import 'source_bar.dart';
 import 'nav.dart';
 import 'sub_search.dart';
+import 'saved.dart';
 
 enum MediaFilter { all, images, videos, galleries, text, links, documents }
 
@@ -257,6 +258,8 @@ Future<void> loadFilterPrefs() async {
   saveOriginalBytes.value = sp.getBool('saveOriginalBytes') ?? false;
   saveOriginalBytes.addListener(() => sp.setBool('saveOriginalBytes', saveOriginalBytes.value));
   cleanDownloads.addListener(() => sp.setBool('cleanDownloads', cleanDownloads.value));
+  saveTo.value = sp.getString('saveTo') == 'phone' ? SaveTo.phone : SaveTo.hobees;
+  saveTo.addListener(() => sp.setString('saveTo', saveTo.value.name));
   originalQuality.addListener(() => sp.setBool('originalQuality', originalQuality.value));
   originalShapeGrid.value = sp.getBool('originalShapeGrid') ?? true;
   originalShapeGrid.addListener(() => sp.setBool('originalShapeGrid', originalShapeGrid.value));
