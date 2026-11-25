@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_lock.dart';
 import 'following.dart';
 import 'follows.dart';
 import 'follows_ui.dart';
@@ -6,7 +7,11 @@ import 'nav.dart';
 
 /// Open the Following feed of [profile] (default: the active one) in the Deep Search tab. No login needed.
 Future<void> openFollowing([int? profile]) async {
-  final id = profile ?? FollowStore.active.value ?? (await FollowStore.profiles()).first.id;
+  final all = await FollowStore.profiles();
+  final id = profile ?? FollowStore.active.value ?? all.first.id;
+  // Locked list: ask for an unlock first (once until the app locks again).
+  final name = all.where((p) => p.id == id).map((p) => p.name).firstOrNull ?? 'this list';
+  if (!await AppLock.allowProfile(id, name)) return;
   await FollowStore.setActive(id);
   deepReturn.value = null;
   deepSource.value = followingKey(id);

@@ -9,6 +9,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'accounts.dart';
 import 'player.dart';
 import 'screen_awake.dart';
+import 'app_lock.dart';
+import 'app_lock_ui.dart';
+import 'following.dart';
 import 'archive.dart';
 import 'public_sources.dart';
 import 'auth.dart';
@@ -60,6 +63,9 @@ Future<void> _main() async {
   await _safe('suggest', () async => sp.remove('suggestPrefs'));
   await _safe('video', VideoPrefs.load);
   await _safe('awake', ScreenAwake.load);
+  AppLock.viewingProfile = () => mainTab.value == 1 ? followingProfile(deepSource.value ?? '') : null;
+  ScreenAwake.onIdle = AppLock.idle;
+  await _safe('lock', AppLock.load);
   await _safe('auth', Auth.i.init);
   // Thumbs are decoded at display size (cacheWidth); the extra room holds the viewer's prefetched originals
   // (decoded up to 4096 px, Phase 2), which a 120 MB cache evicted before they were shown.
@@ -71,6 +77,7 @@ Future<void> _main() async {
   // mode when the app was simply closed or swiped away during those first seconds.
   WidgetsBinding.instance.addPostFrameCallback((_) => Timer(const Duration(seconds: 2), () => sp.setBool('booting', false)));
   AppLifecycleListener(onPause: () => sp.setBool('booting', false), onDetach: () => sp.setBool('booting', false));
+  AppLifecycleListener(onPause: AppLock.paused, onResume: AppLock.resumed);
 }
 
 /// One failing restore must never stop the app from opening.
@@ -118,10 +125,13 @@ class HobeeApp extends StatelessWidget {
           themeMode: m,
           home: const Home(),
           // Every touch restarts the keep-screen-on idle limit.
-          builder: (_, child) => Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: (_) => ScreenAwake.touched(),
-            child: child,
+          // The app lock covers everything, dialogs and pages included.
+          builder: (_, child) => LockGate(
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (_) => ScreenAwake.touched(),
+              child: child,
+            ),
           ),
         ),
       );
