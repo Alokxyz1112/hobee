@@ -53,6 +53,8 @@ dependencies:
   file_picker: 13.3.3
   # Background refresh of the Following feed (Android WorkManager). Pinned to a release older than two weeks.
   workmanager: 0.10.10
+  # App lock: fingerprint / face / phone screen lock (Phase 5a). Pinned to a release older than two weeks.
+  local_auth: 3.0.2
 dev_dependencies:
   flutter_launcher_icons: ^0.14.1
   flutter_test:
