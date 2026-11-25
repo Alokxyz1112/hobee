@@ -20,6 +20,10 @@ class ScreenAwake {
   static DateTime? _touched;
   static Timer? _timer;
   static bool? _on;
+  static bool _wasIdle = false;
+
+  /// Called once when the idle limit is reached (the app lock locks then).
+  static void Function()? onIdle;
 
   @visibleForTesting
   static Future<void> Function(bool on) apply = (on) => WakelockPlus.toggle(enable: on);
@@ -82,6 +86,9 @@ class ScreenAwake {
       final left = _touched!.add(Duration(minutes: lim)).difference(clock());
       if (left > Duration.zero) _timer = Timer(left, check);
     }
+    final idleNow = mode.value != AwakeMode.off && (mode.value == AwakeMode.everywhere || _viewers > 0) && lim > 0 && !_held;
+    if (idleNow && !_wasIdle) onIdle?.call();
+    _wasIdle = idleNow;
     final want = on;
     if (want != _on) {
       _on = want;
@@ -96,6 +103,8 @@ class ScreenAwake {
     _video = false;
     _touched = null;
     _on = null;
+    _wasIdle = false;
+    onIdle = null;
     mode.value = AwakeMode.off;
     idleMinutes.value = 0;
   }
