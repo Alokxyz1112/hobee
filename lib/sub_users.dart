@@ -163,6 +163,23 @@ class SubChip extends StatelessWidget {
   }
 }
 
+/// Should grid tiles of [source] show where each post came from? Not inside a single subreddit, where every
+/// tile would name the same one; never for a user's own profile space (u_name).
+bool showTileSub(String source, String sub) =>
+    sub.isNotEmpty && !sub.toLowerCase().startsWith('u_') && !source.startsWith('r/') && !isSubSearch(source);
+
+/// Small "r/sub" line for grid tiles: where the post came from. Text only; tapping the tile opens the viewer.
+class TileSub extends StatelessWidget {
+  final String sub;
+  const TileSub(this.sub, {super.key});
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+        decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.45), borderRadius: BorderRadius.circular(8)),
+        child: Text('r/$sub', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70, fontSize: 8.5, fontWeight: FontWeight.w600)),
+      );
+}
+
 /// Small author label for grid tiles (tap opens the profile).
 class TileAuthor extends StatelessWidget {
   final String author;

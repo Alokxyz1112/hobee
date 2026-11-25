@@ -64,4 +64,19 @@ void main() {
     expect(deepSource.value, 'fol:1');
     expect(mainTab.value, 0);
   });
+
+  test('grid tiles name the subreddit only in mixed feeds', () {
+    expect(showTileSub('fol:1', 'chubby'), isTrue, reason: 'Following list');
+    expect(showTileSub('deep:amy', 'pics'), isTrue, reason: 'a profile');
+    expect(showTileSub('u/amy', 'pics'), isTrue);
+    expect(showTileSub('r/pics', 'pics'), isFalse, reason: 'inside one subreddit');
+    expect(showTileSub(subKey('pics'), 'pics'), isFalse, reason: 'subreddit results');
+    expect(showTileSub('fol:1', 'u_amy'), isFalse, reason: "a user's own profile space");
+    expect(showTileSub('fol:1', ''), isFalse);
+  });
+
+  testWidgets('the tile label reads r/name', (t) async {
+    await t.pumpWidget(const MaterialApp(home: Scaffold(body: Center(child: TileSub('chubby')))));
+    expect(find.text('r/chubby'), findsOneWidget);
+  });
 }
